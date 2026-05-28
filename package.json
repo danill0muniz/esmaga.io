@@ -4,8 +4,8 @@
   "description": "Compressor de vídeos para uso interno (Windows e Mac)",
   "main": "dist-electron/main.js",
   "author": {
-    "name": "ae.digital",
-    "email": "contato@ae.digital"
+    "name": "Danillo Muniz",
+    "email": "danillo@ae.digital"
   },
   "license": "MIT",
   "scripts": {
