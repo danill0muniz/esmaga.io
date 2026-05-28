@@ -1,40 +1,18 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import electron from 'vite-plugin-electron';
-import renderer from 'vite-plugin-electron-renderer';
 
 export default defineConfig({
-  plugins: [
-    react(),
-    electron([
-      {
-        // Main process
-        entry: 'src/main/main.ts',
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-            rollupOptions: {
-              external: ['@ffmpeg-installer/ffmpeg', '@ffprobe-installer/ffprobe'],
-            },
-          },
-        },
-      },
-      {
-        // Preload script
-        entry: 'src/main/preload.ts',
-        onstart(args) {
-          args.reload();
-        },
-        vite: {
-          build: {
-            outDir: 'dist-electron',
-          },
-        },
-      },
-    ]),
-    renderer(),
-  ],
+  plugins: [react()],
+  clearScreen: false,
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  envPrefix: ['VITE_', 'TAURI_'],
   build: {
+    target: ['es2021', 'chrome100', 'safari13'],
+    minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
+    sourcemap: !!process.env.TAURI_DEBUG,
     outDir: 'dist',
   },
 });

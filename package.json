@@ -1,72 +1,38 @@
 {
   "name": "video-compressor",
-  "version": "1.0.0",
-  "description": "Compressor de vídeos para uso interno (Windows e Mac)",
-  "main": "dist-electron/main.js",
+  "version": "1.2.0",
+  "description": "Compressor de vídeos leve e rápido — Mac, Windows e Linux",
   "author": {
     "name": "Danillo Muniz",
     "email": "danillo@ae.digital"
   },
   "license": "MIT",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.node.json && vite build && electron-builder",
-    "build:mac": "tsc -p tsconfig.node.json && vite build && electron-builder --mac",
-    "build:win": "tsc -p tsconfig.node.json && vite build && electron-builder --win",
-    "preview": "vite preview"
+    "dev:frontend": "vite",
+    "build:frontend": "vite build",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
   },
   "dependencies": {
-    "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
-  },
-  "build": {
-    "appId": "digital.ae.videocompressor",
-    "productName": "Video Compressor",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist",
-      "dist-electron"
-    ],
-    "asarUnpack": [
-      "**/node_modules/@ffmpeg-installer/**",
-      "**/node_modules/@ffprobe-installer/**"
-    ],
-    "mac": {
-      "target": [
-        "dmg"
-      ],
-      "category": "public.app-category.video"
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "AudioVideo"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+    "vite": "^6.0.3"
   }
 }

@@ -1,0 +1,798 @@
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use tauri::{
+    AppHandle, Emitter, Manager,
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+};
+use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandEvent;
+
+// ---------- Tipos ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFile {
+    pub path: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub status: String,
+    pub progress: u32,
+    pub input_size: u64,
+    pub output_size: u64,
+    pub duration_seconds: f64,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompressionSettings {
+    pub format: String,
+    pub quality: String,
+    pub resolution: String,
+    pub container: String,
+    pub remove_audio: bool,
+    pub trim_start: Option<String>,
+    pub trim_end: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressEvent {
+    pub job_id: String,
+    pub progress: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobDoneEvent {
+    pub job_id: String,
+    pub output_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobErrorEvent {
+    pub job_id: String,
+    pub message: String,
+}
+
+// ---------- Dados do tray ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayJobInfo {
+    pub file_name: String,
+    pub status: String,
+    pub progress: u32,
+}
+
+// ---------- Estado ----------
+
+struct AppState {
+    hw_encoders: Mutex<Vec<String>>,
+    cancelled: Arc<Mutex<bool>>,
+}
+
+// ---------- Extensões de vídeo ----------
+
+const VIDEO_EXTENSIONS: &[&str] = &[
+    ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".wmv", ".flv",
+];
+
+// ---------- Helpers ----------
+
+fn quality_for_software(format: &str, quality: &str) -> u32 {
+    if format == "h265" {
+        match quality {
+            "alta" => 24,
+            "media" => 28,
+            _ => 32,
+        }
+    } else {
+        match quality {
+            "alta" => 20,
+            "media" => 23,
+            _ => 28,
+        }
+    }
+}
+
+fn quality_for_hw(quality: &str) -> u32 {
+    match quality {
+        "alta" => 35,
+        "media" => 50,
+        _ => 65,
+    }
+}
+
+fn get_hw_encoder(format: &str, encoders: &[String]) -> Option<String> {
+    if format == "h265" {
+        if encoders.iter().any(|e| e == "hevc_videotoolbox") {
+            return Some("hevc_videotoolbox".to_string());
+        }
+        if encoders.iter().any(|e| e == "hevc_nvenc") {
+            return Some("hevc_nvenc".to_string());
+        }
+    } else {
+        if encoders.iter().any(|e| e == "h264_videotoolbox") {
+            return Some("h264_videotoolbox".to_string());
+        }
+        if encoders.iter().any(|e| e == "h264_nvenc") {
+            return Some("h264_nvenc".to_string());
+        }
+    }
+    None
+}
+
+fn can_copy_audio(input: &str, container: &str) -> bool {
+    let input_ext = Path::new(input)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    // AAC é compatível com MP4, MOV, MKV. Copiar áudio evita re-encoding.
+    match container {
+        "mp4" => matches!(input_ext.as_str(), "mp4" | "mov" | "m4v" | "mkv"),
+        "mkv" => true, // MKV aceita qualquer codec de áudio
+        _ => false, // WebM precisa Opus
+    }
+}
+
+fn build_args(
+    input: &str,
+    output: &str,
+    settings: &CompressionSettings,
+    use_hw: bool,
+    encoders: &[String],
+) -> Vec<String> {
+    let mut args = vec!["-y".to_string()];
+
+    // Decodificação por hardware (antes do -i)
+    if use_hw {
+        #[cfg(target_os = "macos")]
+        args.extend_from_slice(&["-hwaccel".to_string(), "videotoolbox".to_string()]);
+        #[cfg(target_os = "windows")]
+        {
+            if encoders.iter().any(|e| e.contains("nvenc")) {
+                args.extend_from_slice(&["-hwaccel".to_string(), "cuda".to_string()]);
+            } else {
+                args.extend_from_slice(&["-hwaccel".to_string(), "d3d11va".to_string()]);
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if encoders.iter().any(|e| e.contains("nvenc")) {
+                args.extend_from_slice(&["-hwaccel".to_string(), "cuda".to_string()]);
+            } else {
+                args.extend_from_slice(&["-hwaccel".to_string(), "vaapi".to_string()]);
+            }
+        }
+    }
+
+    args.extend_from_slice(&[
+        "-i".to_string(),
+        input.to_string(),
+        "-map_metadata".to_string(),
+        "0".to_string(),
+    ]);
+
+    if let Some(ref start) = settings.trim_start {
+        if !start.is_empty() {
+            args.extend_from_slice(&["-ss".to_string(), start.clone()]);
+        }
+    }
+    if let Some(ref end) = settings.trim_end {
+        if !end.is_empty() {
+            args.extend_from_slice(&["-to".to_string(), end.clone()]);
+        }
+    }
+
+    let is_webm = settings.container == "webm";
+
+    if is_webm {
+        // WEBM usa VP9 + Opus, ignora codec selecionado
+        let crf = match settings.quality.as_str() {
+            "alta" => 28,
+            "media" => 33,
+            _ => 40,
+        };
+        args.extend_from_slice(&[
+            "-c:v".to_string(), "libvpx-vp9".to_string(),
+            "-crf".to_string(), crf.to_string(),
+            "-b:v".to_string(), "0".to_string(),
+            "-cpu-used".to_string(), "6".to_string(),
+            "-threads".to_string(), "0".to_string(),
+        ]);
+    } else {
+        let hw_encoder = if use_hw {
+            get_hw_encoder(&settings.format, encoders)
+        } else {
+            None
+        };
+
+        if let Some(ref enc) = hw_encoder {
+            let is_nvenc = enc.contains("nvenc");
+            args.extend_from_slice(&["-c:v".to_string(), enc.clone()]);
+            if is_nvenc {
+                args.extend_from_slice(&[
+                    "-cq".to_string(),
+                    quality_for_hw(&settings.quality).to_string(),
+                    "-preset".to_string(),
+                    "p4".to_string(),
+                ]);
+            } else {
+                args.extend_from_slice(&[
+                    "-q:v".to_string(),
+                    quality_for_hw(&settings.quality).to_string(),
+                    "-realtime".to_string(),
+                    "1".to_string(),
+                ]);
+            }
+        } else {
+            let codec = if settings.format == "h265" { "libx265" } else { "libx264" };
+            let crf = quality_for_software(&settings.format, &settings.quality);
+            args.extend_from_slice(&[
+                "-c:v".to_string(),
+                codec.to_string(),
+                "-crf".to_string(),
+                crf.to_string(),
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-threads".to_string(),
+                "0".to_string(),
+            ]);
+        }
+    }
+
+    match settings.resolution.as_str() {
+        "1080p" => args.extend_from_slice(&["-vf".to_string(), "scale=-2:1080".to_string()]),
+        "720p" => args.extend_from_slice(&["-vf".to_string(), "scale=-2:720".to_string()]),
+        _ => {}
+    }
+
+    if settings.remove_audio {
+        args.extend_from_slice(&["-an".to_string()]);
+    } else if is_webm {
+        args.extend_from_slice(&[
+            "-c:a".to_string(), "libopus".to_string(),
+            "-b:a".to_string(), "128k".to_string(),
+        ]);
+    } else if can_copy_audio(input, &settings.container) {
+        args.extend_from_slice(&["-c:a".to_string(), "copy".to_string()]);
+    } else {
+        args.extend_from_slice(&[
+            "-c:a".to_string(), "aac".to_string(),
+            "-b:a".to_string(), "128k".to_string(),
+        ]);
+    }
+
+    if !is_webm && settings.format == "h265" {
+        args.extend_from_slice(&["-tag:v".to_string(), "hvc1".to_string()]);
+    }
+
+    if !is_webm {
+        args.extend_from_slice(&["-movflags".to_string(), "+faststart".to_string()]);
+    }
+
+    args.push(output.to_string());
+
+    args
+}
+
+fn parse_time(line: &str) -> Option<f64> {
+    let re = Regex::new(r"time=(\d+):(\d+):(\d+\.?\d*)").ok()?;
+    let caps = re.captures(line)?;
+    let h: f64 = caps[1].parse().ok()?;
+    let m: f64 = caps[2].parse().ok()?;
+    let s: f64 = caps[3].parse().ok()?;
+    Some(h * 3600.0 + m * 60.0 + s)
+}
+
+// ---------- Comandos Tauri ----------
+
+#[tauri::command]
+fn scan_folder(folder_path: String) -> Vec<VideoFile> {
+    let mut videos = Vec::new();
+    let Ok(entries) = fs::read_dir(&folder_path) else {
+        return videos;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{}", e.to_lowercase()))
+            .unwrap_or_default();
+        if !VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+            continue;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        videos.push(VideoFile {
+            path: path.to_string_lossy().to_string(),
+            size,
+        });
+    }
+    videos
+}
+
+#[tauri::command]
+fn get_file_size(file_path: String) -> u64 {
+    fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
+}
+
+#[tauri::command]
+fn check_disk_space(folder_path: String) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        let c_path = CString::new(folder_path).unwrap_or_default();
+        unsafe {
+            let mut stat: libc::statvfs = std::mem::zeroed();
+            if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+                return stat.f_bavail as u64 * stat.f_frsize as u64;
+            }
+        }
+        0
+    }
+    #[cfg(not(unix))]
+    {
+        0
+    }
+}
+
+#[tauri::command]
+async fn extract_thumbnail(app: AppHandle, file_path: String) -> Result<String, String> {
+    use base64::Engine;
+
+    let temp_dir = std::env::temp_dir();
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    file_path.hash(&mut hasher);
+    let hash = hasher.finish();
+    let thumb_path = temp_dir.join(format!("vc_thumb_{}.jpg", hash));
+    let thumb_str = thumb_path.to_string_lossy().to_string();
+
+    // Se já existe, retornar direto
+    if thumb_path.exists() {
+        let bytes = fs::read(&thumb_path).map_err(|e| e.to_string())?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        return Ok(format!("data:image/jpeg;base64,{}", b64));
+    }
+
+    let shell = app.shell();
+    let output = shell
+        .sidecar("ffmpeg")
+        .unwrap()
+        .args([
+            "-i", &file_path,
+            "-ss", "1",
+            "-vframes", "1",
+            "-vf", "scale=160:-2",
+            "-q:v", "8",
+            "-y",
+            &thumb_str,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Erro ao extrair thumbnail: {}", e))?;
+
+    if !thumb_path.exists() {
+        return Err("Falha ao gerar thumbnail".to_string());
+    }
+
+    let bytes = fs::read(&thumb_path).map_err(|e| e.to_string())?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:image/jpeg;base64,{}", b64))
+}
+
+#[tauri::command]
+async fn probe_duration(app: AppHandle, file_path: String) -> f64 {
+    let shell = app.shell();
+    let output = shell
+        .sidecar("ffprobe")
+        .unwrap()
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            &file_path,
+        ])
+        .output()
+        .await;
+
+    match output {
+        Ok(out) => {
+            let s = String::from_utf8_lossy(&out.stdout);
+            s.trim().parse::<f64>().unwrap_or(0.0)
+        }
+        Err(_) => 0.0,
+    }
+}
+
+#[tauri::command]
+async fn open_folder(folder_path: String) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(&folder_path).spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer").arg(&folder_path).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&folder_path).spawn();
+    }
+}
+
+#[tauri::command]
+async fn start_compression(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    jobs: Vec<VideoJob>,
+    settings: CompressionSettings,
+    _output_dir: String,
+    max_parallel: u32,
+) -> Result<(), String> {
+    {
+        *state.cancelled.lock().unwrap() = false;
+    }
+
+    let encoders = state.hw_encoders.lock().unwrap().clone();
+    let cancelled = state.cancelled.clone();
+    let max_parallel = (max_parallel.max(1)) as usize;
+
+    for chunk in jobs.chunks(max_parallel) {
+        if *cancelled.lock().unwrap() {
+            break;
+        }
+
+        let mut handles = Vec::new();
+
+        for job in chunk {
+            let app = app.clone();
+            let settings = settings.clone();
+            let encoders = encoders.clone();
+            let cancelled = cancelled.clone();
+            let job = job.clone();
+
+            let handle = tokio::spawn(async move {
+                if *cancelled.lock().unwrap() {
+                    return;
+                }
+
+                // Criar pasta de saída
+                if let Some(parent) = Path::new(&job.output_path).parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+
+                let has_hw = get_hw_encoder(&settings.format, &encoders).is_some();
+
+                // Tenta HW primeiro, fallback para software
+                let result = if has_hw {
+                    let hw_args = build_args(&job.input_path, &job.output_path, &settings, true, &encoders);
+                    let r = run_ffmpeg(&app, &hw_args, &job, &cancelled).await;
+                    match r {
+                        Ok(size) => Ok(size),
+                        Err(_) => {
+                            // Limpar arquivo parcial antes do fallback
+                            let _ = fs::remove_file(&job.output_path);
+                            let _ = app.emit("progress", ProgressEvent {
+                                job_id: job.id.clone(),
+                                progress: 0,
+                            });
+                            let sw_args = build_args(&job.input_path, &job.output_path, &settings, false, &encoders);
+                            run_ffmpeg(&app, &sw_args, &job, &cancelled).await
+                        }
+                    }
+                } else {
+                    let sw_args = build_args(&job.input_path, &job.output_path, &settings, false, &encoders);
+                    run_ffmpeg(&app, &sw_args, &job, &cancelled).await
+                };
+
+                if *cancelled.lock().unwrap() {
+                    return;
+                }
+
+                match result {
+                    Ok(output_size) => {
+                        let _ = app.emit("job-done", JobDoneEvent {
+                            job_id: job.id.clone(),
+                            output_size,
+                        });
+                    }
+                    Err(msg) => {
+                        let _ = app.emit("job-error", JobErrorEvent {
+                            job_id: job.id.clone(),
+                            message: msg,
+                        });
+                    }
+                }
+            });
+
+            handles.push(handle);
+        }
+
+        // Aguardar todas as tasks do chunk terminarem
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_ffmpeg(
+    app: &AppHandle,
+    args: &[String],
+    job: &VideoJob,
+    cancelled: &Arc<Mutex<bool>>,
+) -> Result<u64, String> {
+    let shell = app.shell();
+    let (mut rx, child) = shell
+        .sidecar("ffmpeg")
+        .unwrap()
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
+
+    let duration = job.duration_seconds;
+    let job_id = job.id.clone();
+    let app_clone = app.clone();
+    let cancelled_clone = cancelled.clone();
+    let output_path = job.output_path.clone();
+
+    // Ler eventos do processo (stderr contém o progresso)
+    let mut stderr_buf = String::new();
+    let mut exited_ok = false;
+
+    while let Some(event) = rx.recv().await {
+        if *cancelled_clone.lock().unwrap() {
+            let _ = child.kill();
+            return Err("Cancelado".to_string());
+        }
+
+        match event {
+            CommandEvent::Stderr(data) => {
+                let line = String::from_utf8_lossy(&data);
+                stderr_buf.push_str(&line);
+
+                if let Some(t) = parse_time(&stderr_buf) {
+                    if duration > 0.0 {
+                        let pct = ((t / duration) * 100.0).min(99.0) as u32;
+                        let _ = app_clone.emit("progress", ProgressEvent {
+                            job_id: job_id.clone(),
+                            progress: pct,
+                        });
+                    }
+                }
+
+                // Limpar buffer se ficou grande (manter só últimos bytes)
+                if stderr_buf.len() > 4096 {
+                    stderr_buf = stderr_buf[stderr_buf.len() - 512..].to_string();
+                }
+            }
+            CommandEvent::Terminated(payload) => {
+                exited_ok = payload.code == Some(0);
+            }
+            _ => {}
+        }
+    }
+
+    if !exited_ok {
+        return Err("ffmpeg saiu com código de erro".to_string());
+    }
+
+    let size = fs::metadata(&output_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    Ok(size)
+}
+
+#[tauri::command]
+fn get_cpu_usage() -> f32 {
+    use sysinfo::System;
+    let mut sys = System::new();
+    sys.refresh_cpu_usage();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    sys.refresh_cpu_usage();
+    sys.global_cpu_usage()
+}
+
+#[tauri::command]
+async fn cancel_all(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    *state.cancelled.lock().unwrap() = true;
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_tray_menu(app: AppHandle, jobs: Vec<TrayJobInfo>) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id("main") else {
+        return Ok(());
+    };
+
+    let mut items: Vec<MenuItem<tauri::Wry>> = Vec::new();
+
+    if jobs.is_empty() {
+        let idle = MenuItem::with_id(&app, "idle", "Nenhum vídeo na fila", false, None::<&str>)
+            .map_err(|e| e.to_string())?;
+        items.push(idle);
+    } else {
+        for job in &jobs {
+            let label = match job.status.as_str() {
+                "processando" => format!("⚙ {} — {}%", truncate_name(&job.file_name, 30), job.progress),
+                "concluido" => format!("✓ {}", truncate_name(&job.file_name, 30)),
+                "erro" => format!("✕ {}", truncate_name(&job.file_name, 30)),
+                _ => format!("◦ {}", truncate_name(&job.file_name, 30)),
+            };
+            let item = MenuItem::with_id(&app, &format!("job-{}", job.file_name), &label, false, None::<&str>)
+                .map_err(|e| e.to_string())?;
+            items.push(item);
+        }
+    }
+
+    let separator = tauri::menu::PredefinedMenuItem::separator(&app)
+        .map_err(|e| e.to_string())?;
+    let show_i = MenuItem::with_id(&app, "show", "Abrir Video Compressor", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let quit_i = MenuItem::with_id(&app, "quit", "Sair", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    let menu_refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = {
+        let mut refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
+        refs.push(&separator);
+        refs.push(&show_i);
+        refs.push(&quit_i);
+        refs
+    };
+
+    let menu = Menu::with_items(&app, &menu_refs)
+        .map_err(|e| e.to_string())?;
+
+    tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
+
+    // Atualizar tooltip com resumo
+    let processing = jobs.iter().filter(|j| j.status == "processando").count();
+    let pending = jobs.iter().filter(|j| j.status == "pendente").count();
+    let tooltip = if processing > 0 {
+        format!("Video Compressor — {} comprimindo, {} na fila", processing, pending)
+    } else {
+        "Video Compressor".to_string()
+    };
+    let _ = tray.set_tooltip(Some(&tooltip));
+
+    Ok(())
+}
+
+fn truncate_name(name: &str, max: usize) -> String {
+    if name.len() <= max {
+        name.to_string()
+    } else {
+        format!("{}…", &name[..max - 1])
+    }
+}
+
+// ---------- Detecção de HW encoders ----------
+
+async fn detect_hw_encoders(app: &AppHandle) -> Vec<String> {
+    let shell = app.shell();
+    let output = shell
+        .sidecar("ffmpeg")
+        .unwrap()
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .await;
+
+    let Ok(out) = output else {
+        return vec![];
+    };
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut encoders = Vec::new();
+
+    if stdout.contains("h264_videotoolbox") {
+        encoders.push("h264_videotoolbox".to_string());
+    }
+    if stdout.contains("hevc_videotoolbox") {
+        encoders.push("hevc_videotoolbox".to_string());
+    }
+    if stdout.contains("h264_nvenc") {
+        encoders.push("h264_nvenc".to_string());
+    }
+    if stdout.contains("hevc_nvenc") {
+        encoders.push("hevc_nvenc".to_string());
+    }
+
+    encoders
+}
+
+// ---------- Bootstrap ----------
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(AppState {
+            hw_encoders: Mutex::new(Vec::new()),
+            cancelled: Arc::new(Mutex::new(false)),
+        })
+        .setup(|app| {
+            // Detectar encoders de hardware
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let encoders = detect_hw_encoders(&handle).await;
+                let state = handle.state::<AppState>();
+                *state.hw_encoders.lock().unwrap() = encoders;
+            });
+
+            // System tray
+            let show_i = MenuItem::with_id(app, "show", "Abrir Video Compressor", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            TrayIconBuilder::with_id("main")
+                .icon(app.default_window_icon().unwrap().clone())
+                .tooltip("Video Compressor")
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.unminimize();
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            // Esconder janela ao fechar (em vez de encerrar)
+            let window = app.get_webview_window("main").unwrap();
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window_clone.hide();
+                }
+            });
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            scan_folder,
+            get_file_size,
+            check_disk_space,
+            extract_thumbnail,
+            probe_duration,
+            open_folder,
+            start_compression,
+            cancel_all,
+            update_tray_menu,
+            get_cpu_usage,
+        ])
+        .run(tauri::generate_context!())
+        .expect("Erro ao iniciar o app");
+}

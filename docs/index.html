@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Esmaga.io — Comprima seus vídeos sem perder qualidade</title>
+  <meta name="description" content="Esmaga.io: compressor de vídeo gratuito, rápido e leve. Suporta MP4, MKV, WebM com aceleração de hardware. Mac, Windows e Linux.">
+  <meta name="keywords" content="compressor de vídeo, video compressor, esmaga, smash, comprimir vídeo, reduzir tamanho vídeo, free video compressor">
+  <meta property="og:title" content="Esmaga.io — Compressor de Vídeo Gratuito">
+  <meta property="og:description" content="Comprima seus vídeos sem perder qualidade. Rápido, leve e gratuito.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://esmaga.io">
+  <meta property="og:image" content="https://esmaga.io/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Esmaga.io — Compressor de Vídeo Gratuito">
+  <meta name="twitter:description" content="Comprima seus vídeos sem perder qualidade. Rápido, leve e gratuito.">
+  <link rel="icon" type="image/png" href="/app-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0f1115;
+      --bg-secondary: #16181d;
+      --bg-card: #1a1d24;
+      --bg-card-hover: #1f2229;
+      --accent-blue: #4f8cff;
+      --accent-purple: #a855f7;
+      --accent-blue-dim: rgba(79, 140, 255, 0.12);
+      --accent-purple-dim: rgba(168, 85, 247, 0.08);
+      --text-primary: #f0f2f5;
+      --text-secondary: #8b8f98;
+      --text-tertiary: #5c6070;
+      --border-color: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(255, 255, 255, 0.12);
+      --gradient-start: #4f8cff;
+      --gradient-end: #a855f7;
+      --font-stack: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --radius: 12px;
+      --radius-lg: 20px;
+      --max-width: 1120px;
+    }
+
+    *, *::before, *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      font-family: var(--font-stack);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* Animations */
+    @keyframes gradient-shift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+
+    @keyframes fade-in-up {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
+    }
+
+    .fade-in {
+      animation: fade-in-up 0.7s ease-out both;
+    }
+
+    .fade-in-delay-1 { animation-delay: 0.1s; }
+    .fade-in-delay-2 { animation-delay: 0.2s; }
+    .fade-in-delay-3 { animation-delay: 0.3s; }
+    .fade-in-delay-4 { animation-delay: 0.4s; }
+
+    /* Layout */
+    .container {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 100px 0;
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 120px 0 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -40%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 800px;
+      background: radial-gradient(circle, var(--accent-blue-dim) 0%, var(--accent-purple-dim) 40%, transparent 70%);
+      animation: pulse-glow 6s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: -20%;
+      right: -10%;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, var(--accent-purple-dim) 0%, transparent 60%);
+      animation: pulse-glow 8s ease-in-out infinite 2s;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero .container {
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-title {
+      font-family: 'Space Grotesk', 'Inter', sans-serif;
+      font-size: clamp(3.5rem, 10vw, 7rem);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      background: linear-gradient(135deg, #4f8cff, #a855f7, #ec4899, #4f8cff);
+      background-size: 300% 300%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: gradient-shift 6s ease-in-out infinite;
+      margin-bottom: 24px;
+      text-transform: none;
+    }
+
+    .hero-tagline {
+      font-size: clamp(1.15rem, 2.5vw, 1.4rem);
+      color: var(--text-primary);
+      max-width: 560px;
+      margin: 0 auto 8px;
+      font-weight: 500;
+    }
+
+    .hero-tagline-en {
+      font-size: clamp(0.9rem, 1.8vw, 1.05rem);
+      color: var(--text-secondary);
+      max-width: 500px;
+      margin: 0 auto 48px;
+      font-weight: 400;
+      font-style: italic;
+    }
+
+    /* Buttons */
+    .btn-group {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 32px;
+      border-radius: var(--radius);
+      font-family: var(--font-stack);
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+      color: #fff;
+      box-shadow: 0 4px 24px rgba(79, 140, 255, 0.25), 0 0 0 0 rgba(79, 140, 255, 0);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(79, 140, 255, 0.35), 0 0 0 2px rgba(79, 140, 255, 0.15);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 16px rgba(79, 140, 255, 0.2);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    .btn svg {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .link-linux {
+      display: block;
+      text-align: center;
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      margin-bottom: 32px;
+      transition: color 0.2s;
+    }
+
+    .link-linux:hover {
+      color: var(--accent-blue);
+    }
+
+    .hero-meta {
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+      letter-spacing: 0.02em;
+    }
+
+    /* Features */
+    .features {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-blue);
+      margin-bottom: 12px;
+      text-align: center;
+    }
+
+    .section-title {
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      text-align: center;
+      max-width: 500px;
+      margin: 0 auto 64px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      transition: all 0.3s ease;
+    }
+
+    .feature-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      font-size: 1.5rem;
+      background: linear-gradient(135deg, var(--accent-blue-dim), var(--accent-purple-dim));
+    }
+
+    .feature-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .feature-title-en {
+      font-size: 0.85rem;
+      color: var(--text-tertiary);
+      font-weight: 400;
+      margin-bottom: 12px;
+    }
+
+    .feature-desc {
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* How it works */
+    .how-it-works {
+      text-align: center;
+    }
+
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      margin-top: 64px;
+      position: relative;
+    }
+
+    .steps::before {
+      content: '';
+      position: absolute;
+      top: 44px;
+      left: 15%;
+      right: 15%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+      opacity: 0.3;
+      z-index: 0;
+    }
+
+    .step {
+      position: relative;
+      z-index: 1;
+    }
+
+    .step-number {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-blue-dim), var(--accent-purple-dim));
+      border: 2px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 800;
+      margin: 0 auto 24px;
+      background-color: var(--bg-primary);
+      color: var(--accent-blue);
+    }
+
+    .step-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .step-desc {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      max-width: 280px;
+      margin: 0 auto;
+    }
+
+    /* Stats */
+    .stats {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      padding: 64px 0;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+    }
+
+    .stat {
+      text-align: center;
+      padding: 24px;
+    }
+
+    .stat-value {
+      font-size: clamp(1.8rem, 3.5vw, 2.4rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 6px;
+    }
+
+    .stat-label {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .stat-label-en {
+      font-size: 0.8rem;
+      color: var(--text-tertiary);
+      font-style: italic;
+    }
+
+    /* CTA */
+    .cta {
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, var(--accent-blue-dim) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .cta .container {
+      position: relative;
+      z-index: 1;
+    }
+
+    .cta-title {
+      font-size: clamp(1.8rem, 4vw, 2.5rem);
+      font-weight: 800;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .cta-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 40px;
+      font-style: italic;
+    }
+
+    .cta-note {
+      margin-top: 24px;
+      font-size: 0.9rem;
+      color: var(--text-tertiary);
+    }
+
+    /* Footer */
+    .footer {
+      border-top: 1px solid var(--border-color);
+      padding: 48px 0;
+      text-align: center;
+    }
+
+    .footer-heart {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      margin-bottom: 20px;
+    }
+
+    .footer-heart a {
+      color: var(--accent-blue);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer-heart a:hover {
+      color: var(--accent-purple);
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover {
+      color: var(--accent-blue);
+    }
+
+    .footer-copy {
+      font-size: 0.8rem;
+      color: var(--text-tertiary);
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .steps::before {
+        display: none;
+      }
+    }
+
+    @media (max-width: 640px) {
+      section {
+        padding: 72px 0;
+      }
+
+      .hero {
+        min-height: auto;
+        padding: 100px 0 64px;
+      }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .steps {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+
+      .stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .btn-group {
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .btn {
+        width: 100%;
+        max-width: 320px;
+        justify-content: center;
+      }
+
+      .footer-links {
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+    }
+
+    /* Selection color */
+    ::selection {
+      background: rgba(79, 140, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1 class="hero-title fade-in">Esmaga.io</h1>
+      <p class="hero-tagline fade-in fade-in-delay-1">
+        Comprima seus vídeos sem perder qualidade.<br>Rápido, leve e gratuito.
+      </p>
+      <p class="hero-tagline-en fade-in fade-in-delay-2">
+        Compress your videos without losing quality. Fast, lightweight and free.
+      </p>
+
+      <div class="btn-group fade-in fade-in-delay-3">
+        <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.08.66-.22.66-.48v-1.7C6.73 19.91 6.14 18 6.14 18A2.69 2.69 0 0 0 5 16.5c-.91-.62.07-.6.07-.6a2.1 2.1 0 0 1 1.53 1.03 2.15 2.15 0 0 0 2.91.83 2.12 2.12 0 0 1 .63-1.34c-2.22-.25-4.55-1.11-4.55-4.94a3.88 3.88 0 0 1 1.03-2.69 3.6 3.6 0 0 1 .1-2.64s.84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02a3.6 3.6 0 0 1 .1 2.64 3.88 3.88 0 0 1 1.03 2.69c0 3.84-2.34 4.69-4.57 4.93a2.38 2.38 0 0 1 .68 1.85v2.75c0 .27.16.57.67.48A10 10 0 0 0 12 2z"/></svg>
+          Download para Mac
+        </a>
+        <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.548l7.065-0.964v6.817H3V5.548zm0 12.904l7.065 0.964V12.6H3v5.852zm7.834 1.073L21 21V12.6H10.834v6.925zM10.834 4.475V11.4H21V3l-10.166 1.475z"/></svg>
+          Download para Windows
+        </a>
+      </div>
+
+      <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="link-linux fade-in fade-in-delay-3">
+        Linux (.deb / .AppImage)
+      </a>
+
+      <p class="hero-meta fade-in fade-in-delay-4">v1.2.0 &middot; Gratuito &middot; Mac, Windows &amp; Linux</p>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features" id="features">
+    <div class="container">
+      <p class="section-label fade-in">Recursos</p>
+      <h2 class="section-title fade-in">Tudo que você precisa. Nada que não precisa.</h2>
+      <p class="section-subtitle fade-in">Simples, rápido e poderoso.</p>
+
+      <div class="features-grid">
+        <!-- 1 -->
+        <div class="feature-card fade-in">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <div class="feature-title">Compressão ultrarrápida</div>
+          <div class="feature-title-en">Ultra-fast compression</div>
+          <p class="feature-desc">Aceleração por hardware (VideoToolbox, NVENC) para comprimir em segundos.</p>
+        </div>
+
+        <!-- 2 -->
+        <div class="feature-card fade-in fade-in-delay-1">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <div class="feature-title">Qualidade preservada</div>
+          <div class="feature-title-en">Quality preserved</div>
+          <p class="feature-desc">Encoding baseado em CRF mantém a qualidade visual enquanto reduz o tamanho.</p>
+        </div>
+
+        <!-- 3 -->
+        <div class="feature-card fade-in fade-in-delay-2">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
+          <div class="feature-title">Multi-formato</div>
+          <div class="feature-title-en">Multi-format</div>
+          <p class="feature-desc">Suporte a MP4, MKV, WebM com codecs H.264, H.265 e VP9.</p>
+        </div>
+
+        <!-- 4 -->
+        <div class="feature-card fade-in fade-in-delay-1">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </div>
+          <div class="feature-title">Processamento paralelo</div>
+          <div class="feature-title-en">Parallel processing</div>
+          <p class="feature-desc">Comprima múltiplos vídeos simultaneamente aproveitando todo o seu hardware.</p>
+        </div>
+
+        <!-- 5 -->
+        <div class="feature-card fade-in fade-in-delay-2">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          </div>
+          <div class="feature-title">Corte e edição</div>
+          <div class="feature-title-en">Trim &amp; edit</div>
+          <p class="feature-desc">Corte trechos, remova áudio e faça ajustes básicos antes de comprimir.</p>
+        </div>
+
+        <!-- 6 -->
+        <div class="feature-card fade-in fade-in-delay-3">
+          <div class="feature-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f8cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6"/><path d="M4 14l6 6"/><rect x="14" y="4" width="8" height="8" rx="2"/><path d="M14 14h8v6a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-6z"/></svg>
+          </div>
+          <div class="feature-title">Português &amp; English</div>
+          <div class="feature-title-en">Auto language detection</div>
+          <p class="feature-desc">Detecta automaticamente o idioma do seu sistema. Interface completa em PT-BR e EN.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="how-it-works" id="how">
+    <div class="container">
+      <p class="section-label fade-in">Como funciona</p>
+      <h2 class="section-title fade-in">Três passos. Zero complicação.</h2>
+      <p class="section-subtitle fade-in">Three steps. Zero hassle.</p>
+
+      <div class="steps">
+        <div class="step fade-in">
+          <div class="step-number">1</div>
+          <h3 class="step-title">Selecione</h3>
+          <p class="step-desc">Arraste ou selecione seus vídeos. Aceita múltiplos arquivos de uma vez.</p>
+        </div>
+        <div class="step fade-in fade-in-delay-1">
+          <div class="step-number">2</div>
+          <h3 class="step-title">Configure</h3>
+          <p class="step-desc">Escolha formato, qualidade e resolução. Ou use as configurações padrão.</p>
+        </div>
+        <div class="step fade-in fade-in-delay-2">
+          <div class="step-number">3</div>
+          <h3 class="step-title">Comprima</h3>
+          <p class="step-desc">Clique e aguarde. Simples assim. Seus vídeos ficam na mesma pasta.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Stats -->
+  <section class="stats">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat fade-in">
+          <div class="stat-value">80%</div>
+          <div class="stat-label">Até 80% menor</div>
+          <div class="stat-label-en">Up to 80% smaller</div>
+        </div>
+        <div class="stat fade-in fade-in-delay-1">
+          <div class="stat-value">3</div>
+          <div class="stat-label">Sistemas operacionais</div>
+          <div class="stat-label-en">Operating systems</div>
+        </div>
+        <div class="stat fade-in fade-in-delay-2">
+          <div class="stat-value">100%</div>
+          <div class="stat-label">Gratuito</div>
+          <div class="stat-label-en">Free</div>
+        </div>
+        <div class="stat fade-in fade-in-delay-3">
+          <div class="stat-value">&lt;/&gt;</div>
+          <div class="stat-label">Open source</div>
+          <div class="stat-label-en">MIT License</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta" id="download">
+    <div class="container">
+      <h2 class="cta-title fade-in">Pronto para esmagar seus vídeos?</h2>
+      <p class="cta-subtitle fade-in fade-in-delay-1">Ready to smash your videos?</p>
+
+      <div class="btn-group fade-in fade-in-delay-2">
+        <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 0-3.16 19.5c.5.08.66-.22.66-.48v-1.7C6.73 19.91 6.14 18 6.14 18A2.69 2.69 0 0 0 5 16.5c-.91-.62.07-.6.07-.6a2.1 2.1 0 0 1 1.53 1.03 2.15 2.15 0 0 0 2.91.83 2.12 2.12 0 0 1 .63-1.34c-2.22-.25-4.55-1.11-4.55-4.94a3.88 3.88 0 0 1 1.03-2.69 3.6 3.6 0 0 1 .1-2.64s.84-.27 2.75 1.02a9.58 9.58 0 0 1 5 0c1.91-1.3 2.75-1.02 2.75-1.02a3.6 3.6 0 0 1 .1 2.64 3.88 3.88 0 0 1 1.03 2.69c0 3.84-2.34 4.69-4.57 4.93a2.38 2.38 0 0 1 .68 1.85v2.75c0 .27.16.57.67.48A10 10 0 0 0 12 2z"/></svg>
+          Download para Mac
+        </a>
+        <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.548l7.065-0.964v6.817H3V5.548zm0 12.904l7.065 0.964V12.6H3v5.852zm7.834 1.073L21 21V12.6H10.834v6.925zM10.834 4.475V11.4H21V3l-10.166 1.475z"/></svg>
+          Download para Windows
+        </a>
+      </div>
+
+      <a href="https://github.com/danill0muniz/video-compressor/releases/latest" class="link-linux fade-in fade-in-delay-2">
+        Linux (.deb / .AppImage)
+      </a>
+
+      <p class="cta-note fade-in fade-in-delay-3">Sem cadastro. Sem assinatura. Sem limites.</p>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p class="footer-heart">
+        Feito com &#10084;&#65039; e muita IA
+      </p>
+      <nav class="footer-links">
+        <a href="https://github.com/danill0muniz/video-compressor" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/danill0muniz/video-compressor/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/danill0muniz/video-compressor/issues/new" target="_blank" rel="noopener">Reportar bug</a>
+      </nav>
+      <p class="footer-copy">&copy; 2026 Esmaga.io &mdash; Open source under MIT License</p>
+    </div>
+  </footer>
+
+</body>
+</html>

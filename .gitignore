@@ -1,5 +1,13 @@
 node_modules
 dist
-dist-electron
-release
+src-tauri/target
+src-tauri/binaries/ffmpeg-*
+src-tauri/binaries/ffprobe-*
+src-tauri/ffmpeg-*
+src-tauri/ffprobe-*
+src-tauri/keys/update.key
+src-tauri/gen/schemas
 *.log
+.env
+CLAUDE.md
+icon-novo.png

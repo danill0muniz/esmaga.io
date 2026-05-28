@@ -16,5 +16,5 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src/renderer", "src/shared"]
+  "include": ["src/renderer"]
 }
