@@ -124,14 +124,45 @@ ipcMain.handle('probe-duration', async (_e, filePath: string) => {
   return probeDuration(filePath);
 });
 
+// ---------- Detecção de hardware acceleration ----------
+
+function detectHwEncoder(): Promise<string[]> {
+  return new Promise((resolve) => {
+    const proc = spawn(FFMPEG_PATH, ['-hide_banner', '-encoders']);
+    let out = '';
+    proc.stdout.on('data', (d) => (out += d.toString()));
+    proc.on('close', () => {
+      const encoders: string[] = [];
+      // Mac — VideoToolbox
+      if (out.includes('h264_videotoolbox')) encoders.push('h264_videotoolbox');
+      if (out.includes('hevc_videotoolbox')) encoders.push('hevc_videotoolbox');
+      // Windows/Linux — NVIDIA NVENC
+      if (out.includes('h264_nvenc')) encoders.push('h264_nvenc');
+      if (out.includes('hevc_nvenc')) encoders.push('hevc_nvenc');
+      resolve(encoders);
+    });
+    proc.on('error', () => resolve([]));
+  });
+}
+
+let hwEncoders: string[] = [];
+
+app.whenReady().then(async () => {
+  hwEncoders = await detectHwEncoder();
+});
+
 // ---------- Montagem dos argumentos do ffmpeg ----------
 
-function crfForQuality(format: VideoFormat, quality: Quality): number {
-  // H.265 usa CRF mais alto que H.264 para qualidade equivalente
+function qualityForSoftware(format: VideoFormat, quality: Quality): number {
   if (format === 'h265') {
     return quality === 'alta' ? 24 : quality === 'media' ? 28 : 32;
   }
   return quality === 'alta' ? 20 : quality === 'media' ? 23 : 28;
+}
+
+// VideoToolbox e NVENC usam -q:v (escala invertida, valor menor = melhor)
+function qualityForHw(quality: Quality): number {
+  return quality === 'alta' ? 35 : quality === 'media' ? 50 : 65;
 }
 
 function scaleFilter(resolution: Resolution): string[] {
@@ -140,28 +171,51 @@ function scaleFilter(resolution: Resolution): string[] {
   return [];
 }
 
+function getHwEncoder(format: VideoFormat): string | null {
+  if (format === 'h265') {
+    if (hwEncoders.includes('hevc_videotoolbox')) return 'hevc_videotoolbox';
+    if (hwEncoders.includes('hevc_nvenc')) return 'hevc_nvenc';
+  } else {
+    if (hwEncoders.includes('h264_videotoolbox')) return 'h264_videotoolbox';
+    if (hwEncoders.includes('h264_nvenc')) return 'h264_nvenc';
+  }
+  return null;
+}
+
 function buildArgs(
   inputPath: string,
   outputPath: string,
-  settings: CompressionSettings
+  settings: CompressionSettings,
+  useHw: boolean
 ): string[] {
-  const codec = settings.format === 'h265' ? 'libx265' : 'libx264';
-  const crf = crfForQuality(settings.format, settings.quality);
-  const args = [
-    '-y',
-    '-i', inputPath,
-    '-c:v', codec,
-    '-crf', String(crf),
-    '-preset', 'medium',
-    ...scaleFilter(settings.resolution),
-    '-c:a', 'aac',
-    '-b:a', '128k',
-  ];
-  // hvc1 garante compatibilidade do H.265 com players da Apple
+  const hwEncoder = useHw ? getHwEncoder(settings.format) : null;
+
+  const args = ['-y', '-i', inputPath];
+
+  if (hwEncoder) {
+    // Hardware acceleration
+    const isNvenc = hwEncoder.includes('nvenc');
+    args.push('-c:v', hwEncoder);
+    if (isNvenc) {
+      // NVENC usa -cq para qualidade constante
+      args.push('-cq', String(qualityForHw(settings.quality)), '-preset', 'p4');
+    } else {
+      // VideoToolbox usa -q:v
+      args.push('-q:v', String(qualityForHw(settings.quality)));
+    }
+  } else {
+    // Software — preset fast para melhor velocidade
+    const codec = settings.format === 'h265' ? 'libx265' : 'libx264';
+    const crf = qualityForSoftware(settings.format, settings.quality);
+    args.push('-c:v', codec, '-crf', String(crf), '-preset', 'fast');
+  }
+
+  args.push(...scaleFilter(settings.resolution), '-c:a', 'aac', '-b:a', '128k');
+
   if (settings.format === 'h265') {
     args.push('-tag:v', 'hvc1');
   }
-  // -movflags +faststart deixa o MP4 pronto para streaming online
+
   args.push('-movflags', '+faststart', outputPath);
   return args;
 }
@@ -176,9 +230,8 @@ function parseTime(line: string): number | null {
   return h * 3600 + min * 60 + s;
 }
 
-function compressOne(job: VideoJob, settings: CompressionSettings): Promise<number> {
+function runFfmpeg(job: VideoJob, args: string[]): Promise<number> {
   return new Promise((resolve, reject) => {
-    const args = buildArgs(job.inputPath, job.outputPath, settings);
     currentProcess = spawn(FFMPEG_PATH, args);
 
     currentProcess.stderr?.on('data', (data: Buffer) => {
@@ -214,6 +267,22 @@ function compressOne(job: VideoJob, settings: CompressionSettings): Promise<numb
       reject(err);
     });
   });
+}
+
+async function compressOne(job: VideoJob, settings: CompressionSettings): Promise<number> {
+  const hasHw = getHwEncoder(settings.format) !== null;
+
+  // Tenta hardware acceleration primeiro
+  if (hasHw) {
+    try {
+      return await runFfmpeg(job, buildArgs(job.inputPath, job.outputPath, settings, true));
+    } catch {
+      // Fallback para software se HW falhar
+      mainWindow?.webContents.send('progress', { jobId: job.id, progress: 0 });
+    }
+  }
+
+  return runFfmpeg(job, buildArgs(job.inputPath, job.outputPath, settings, false));
 }
 
 // ---------- Fila ----------
