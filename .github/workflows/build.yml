@@ -224,6 +224,7 @@ jobs:
         with:
           draft: false
           generate_release_notes: true
+          make_latest: true
           files: |
             artifacts/**/*.dmg
             artifacts/**/*.app.tar.gz
