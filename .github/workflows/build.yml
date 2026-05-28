@@ -45,8 +45,29 @@ jobs:
           name: windows-installer
           path: release/*.exe
 
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx tsc -p tsconfig.node.json && npx vite build && npx electron-builder --linux --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installer
+          path: |
+            release/*.AppImage
+            release/*.deb
+
   release:
-    needs: [build-mac, build-windows]
+    needs: [build-mac, build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -61,4 +82,5 @@ jobs:
           files: |
             artifacts/mac-dmg/*.dmg
             artifacts/windows-installer/*.exe
+            artifacts/linux-installer/*
           generate_release_notes: true

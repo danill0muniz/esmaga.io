@@ -54,6 +54,13 @@
         "nsis"
       ]
     },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "AudioVideo"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
