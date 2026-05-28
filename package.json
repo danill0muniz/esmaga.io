@@ -13,8 +13,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ffmpeg-static": "^5.3.0",
-    "ffprobe-static": "^3.1.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -40,8 +40,8 @@
       "dist-electron"
     ],
     "asarUnpack": [
-      "**/node_modules/ffmpeg-static/**",
-      "**/node_modules/ffprobe-static/**"
+      "**/node_modules/@ffmpeg-installer/**",
+      "**/node_modules/@ffprobe-installer/**"
     ],
     "mac": {
       "target": [

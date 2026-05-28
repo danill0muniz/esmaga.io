@@ -10,21 +10,20 @@ import type {
   Resolution,
 } from '../shared/types';
 
-// ffmpeg-static / ffprobe-static exportam o caminho do binário.
+// @ffmpeg-installer e @ffprobe-installer exportam o caminho do binário.
 // Em produção (empacotado com asar), o binário fica em app.asar.unpacked.
-const ffmpegStatic = require('ffmpeg-static') as string;
-const ffprobeStatic = require('ffprobe-static') as { path: string };
+const ffmpegInstaller = require('@ffmpeg-installer/ffmpeg') as { path: string };
+const ffprobeInstaller = require('@ffprobe-installer/ffprobe') as { path: string };
 
 function resolveBinary(p: string): string {
-  // Quando empacotado, troca app.asar por app.asar.unpacked
   if (app.isPackaged) {
     return p.replace('app.asar', 'app.asar.unpacked');
   }
   return p;
 }
 
-const FFMPEG_PATH = resolveBinary(ffmpegStatic);
-const FFPROBE_PATH = resolveBinary(ffprobeStatic.path);
+const FFMPEG_PATH = resolveBinary(ffmpegInstaller.path);
+const FFPROBE_PATH = resolveBinary(ffprobeInstaller.path);
 
 let mainWindow: BrowserWindow | null = null;
 let currentProcess: ChildProcess | null = null;
