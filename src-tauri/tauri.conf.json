@@ -13,6 +13,7 @@
     "active": true,
     "targets": "all",
     "externalBin": ["ffmpeg", "ffprobe"],
+    "resources": ["libs/*.dylib"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -21,7 +22,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "Developer ID Application: Danillo Muniz (638Z8MUN5G)"
     },
     "windows": {
       "nsis": {
