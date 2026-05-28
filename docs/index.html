@@ -261,6 +261,42 @@
       letter-spacing: 0.02em;
     }
 
+    .mac-notice {
+      margin-top: 24px;
+      background: rgba(79, 140, 255, 0.08);
+      border: 1px solid rgba(79, 140, 255, 0.2);
+      border-radius: 12px;
+      padding: 16px 20px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+      text-align: left;
+    }
+
+    .mac-notice p {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
+    .mac-notice strong {
+      color: var(--text-primary);
+    }
+
+    .mac-notice code {
+      display: block;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin: 10px 0;
+      font-size: 0.85rem;
+      color: var(--accent-blue);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      user-select: all;
+      cursor: pointer;
+    }
+
     /* Features */
     .features {
       background: var(--bg-secondary);
@@ -630,6 +666,12 @@
       </a>
 
       <p class="hero-meta fade-in fade-in-delay-4">v1.2.0 &middot; Gratuito &middot; Mac, Windows &amp; Linux</p>
+
+      <div class="mac-notice fade-in fade-in-delay-4">
+        <p><strong>Mac:</strong> Na primeira vez, o macOS pode bloquear o app. Abra o Terminal e execute:</p>
+        <code>xattr -cr /Applications/Esmaga.io.app</code>
+        <p>Depois abra o app normalmente.</p>
+      </div>
     </div>
   </section>
 
