@@ -91,6 +91,38 @@ const VIDEO_EXTENSIONS: &[&str] = &[
     ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".wmv", ".flv",
 ];
 
+const IMAGE_EXTENSIONS: &[&str] = &[
+    ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif", ".gif",
+];
+
+// ---------- Tipos de imagem ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub input_size: u64,
+    pub output_format: String,
+    pub quality: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageDoneEvent {
+    pub job_id: String,
+    pub output_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageErrorEvent {
+    pub job_id: String,
+    pub message: String,
+}
+
 // ---------- Helpers ----------
 
 fn quality_for_software(format: &str, quality: &str) -> u32 {
@@ -605,6 +637,104 @@ async fn run_ffmpeg(
     Ok(size)
 }
 
+// ---------- Comandos de imagem ----------
+
+#[tauri::command]
+fn scan_images(folder_path: String) -> Vec<VideoFile> {
+    let mut images = Vec::new();
+    let Ok(entries) = fs::read_dir(&folder_path) else {
+        return images;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{}", e.to_lowercase()))
+            .unwrap_or_default();
+        if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+            continue;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        images.push(VideoFile {
+            path: path.to_string_lossy().to_string(),
+            size,
+        });
+    }
+    images
+}
+
+#[tauri::command]
+async fn compress_images(app: AppHandle, jobs: Vec<ImageJob>) -> Result<(), String> {
+    for job in &jobs {
+        if let Some(parent) = Path::new(&job.output_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let result = compress_single_image(job);
+        match result {
+            Ok(output_size) => {
+                let _ = app.emit("image-done", ImageDoneEvent {
+                    job_id: job.id.clone(),
+                    output_size,
+                });
+            }
+            Err(msg) => {
+                let _ = app.emit("image-error", ImageErrorEvent {
+                    job_id: job.id.clone(),
+                    message: msg,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn compress_single_image(job: &ImageJob) -> Result<u64, String> {
+    let img = image::open(&job.input_path).map_err(|e| format!("Erro ao abrir imagem: {}", e))?;
+
+    match job.output_format.as_str() {
+        "jpg" | "jpeg" => {
+            let mut output = std::io::BufWriter::new(
+                fs::File::create(&job.output_path).map_err(|e| e.to_string())?
+            );
+            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, job.quality as u8);
+            img.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+        }
+        "png" => {
+            img.save(&job.output_path).map_err(|e| e.to_string())?;
+        }
+        "webp" => {
+            img.save(&job.output_path).map_err(|e| e.to_string())?;
+        }
+        _ => {
+            img.save(&job.output_path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let output_size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+    Ok(output_size)
+}
+
+#[tauri::command]
+fn image_thumbnail(file_path: String) -> Result<String, String> {
+    use base64::Engine;
+
+    let img = image::open(&file_path).map_err(|e| format!("Erro ao abrir imagem: {}", e))?;
+    let thumb = img.thumbnail(160, 160);
+
+    let mut buf = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut buf);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 60);
+    thumb.write_with_encoder(encoder).map_err(|e| e.to_string())?;
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+    Ok(format!("data:image/jpeg;base64,{}", b64))
+}
+
 #[tauri::command]
 fn get_cpu_usage() -> f32 {
     use sysinfo::System;
@@ -799,6 +929,9 @@ pub fn run() {
             cancel_all,
             update_tray_menu,
             get_cpu_usage,
+            scan_images,
+            compress_images,
+            image_thumbnail,
         ])
         .run(tauri::generate_context!())
         .expect("Erro ao iniciar o app");

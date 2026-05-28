@@ -17,6 +17,7 @@ regex = "1"
 base64 = "0.22"
 tokio = { version = "1", features = ["full"] }
 sysinfo = "0.33"
+image = "0.25"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

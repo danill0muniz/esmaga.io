@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { detectLang, saveLang, getTranslations, LangContext, type Lang } from './i18n';
 import { useT } from './i18n';
 
+type AppMode = 'home' | 'video' | 'image';
 type VideoFormat = 'h264' | 'h265';
 type Quality = 'alta' | 'media' | 'baixa';
 type Resolution = 'original' | '1080p' | '720p';
@@ -46,6 +47,23 @@ interface VideoJob {
 interface VideoFile {
   path: string;
   size: number;
+}
+
+type ImageOutputFormat = 'original' | 'jpg' | 'png' | 'webp';
+type ImageJobStatus = 'pendente' | 'concluido' | 'erro';
+
+interface ImageJob {
+  id: string;
+  inputPath: string;
+  fileName: string;
+  outputPath: string;
+  inputSize: number;
+  outputSize: number;
+  outputFormat: ImageOutputFormat;
+  quality: number;
+  status: ImageJobStatus;
+  errorMessage?: string;
+  thumbnail?: string;
 }
 
 type OutputMode = 'same-folder' | 'always-ask' | 'fixed';
@@ -235,6 +253,20 @@ async function pickFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
+async function pickImageFiles(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: 'Imagens',
+      extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif'],
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
+const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif'];
+
 // mapeamento de status para tradução
 function statusText(status: JobStatus, t: ReturnType<typeof getTranslations>): string {
   const map: Record<JobStatus, string> = {
@@ -249,6 +281,7 @@ function statusText(status: JobStatus, t: ReturnType<typeof getTranslations>): s
 // ---------- App ----------
 
 export default function App() {
+  const [mode, setMode] = useState<AppMode>('home');
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [outputDir, setOutputDir] = useState<string>('');
   const [running, setRunning] = useState(false);
@@ -645,29 +678,14 @@ export default function App() {
   const hasPending = jobs.some((j) => j.status === 'pendente');
   const hasErrors = jobs.some((j) => j.status === 'erro');
 
-  return (
-    <LangContext.Provider value={{ t, lang }}>
-    <div className={`app ${isDragging ? 'dragging' : ''}`}>
-      {view === 'settings' ? (
-        <SettingsView
-          outputSettings={outputSettings}
-          onChangeOutput={updateOutputSettings}
-          notificationsEnabled={notificationsEnabled}
-          onToggleNotifications={toggleNotifications}
-          parallelCount={parallelCount}
-          onChangeParallel={updateParallelCount}
-          onBack={() => setView('main')}
-          lang={lang}
-          changeLang={changeLang}
-          theme={theme}
-          onChangeTheme={setTheme}
-        />
-      ) : view === 'history' ? (
-        <HistoryView onBack={() => setView('main')} />
-      ) : (
-      <>
-      <div className="header">
-        <div className="header-row">
+  const renderHeader = (showBack: boolean) => (
+    <div className="header">
+      <div className="header-row">
+        {showBack ? (
+          <button className="btn-back" onClick={() => setMode('home')}>
+            <IconBack /> {t.backToHome}
+          </button>
+        ) : (
           <div className="header-brand">
             <div className="header-logo">
               <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
@@ -687,39 +705,115 @@ export default function App() {
             </div>
             <h1>{t.appName.toUpperCase()}</h1>
           </div>
-          <div className="header-actions">
-            <button
-              className="btn-header-action"
-              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              title={theme === 'dark' ? t.themeLight : t.themeDark}
-            >
-              {theme === 'dark' ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
-              )}
-            </button>
-            <button
-              className="btn-header-action"
-              onClick={() => setView('history')}
-              title={t.history}
-            >
-              <IconHistory />
-            </button>
-            <button
-              className="btn-settings"
-              onClick={() => setView('settings')}
-              title={t.settings}
-            >
-              <IconSettings />
-            </button>
-          </div>
+        )}
+        <div className="header-actions">
+          <button
+            className="btn-header-action"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? t.themeLight : t.themeDark}
+          >
+            {theme === 'dark' ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            )}
+          </button>
+          <button
+            className="btn-header-action"
+            onClick={() => setView('history')}
+            title={t.history}
+          >
+            <IconHistory />
+          </button>
+          <button
+            className="btn-settings"
+            onClick={() => setView('settings')}
+            title={t.settings}
+          >
+            <IconSettings />
+          </button>
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <LangContext.Provider value={{ t, lang }}>
+    <div className={`app ${isDragging ? 'dragging' : ''}`}>
+      {view === 'settings' ? (
+        <SettingsView
+          outputSettings={outputSettings}
+          onChangeOutput={updateOutputSettings}
+          notificationsEnabled={notificationsEnabled}
+          onToggleNotifications={toggleNotifications}
+          parallelCount={parallelCount}
+          onChangeParallel={updateParallelCount}
+          onBack={() => setView('main')}
+          lang={lang}
+          changeLang={changeLang}
+          theme={theme}
+          onChangeTheme={setTheme}
+        />
+      ) : view === 'history' ? (
+        <HistoryView onBack={() => setView('main')} />
+      ) : mode === 'home' ? (
+      <>
+      {renderHeader(false)}
+      <HomeScreen onSelectMode={setMode} />
+      <div className="credits">
+        <div className="credits-left">
+          <IconRobot /> {t.credits}
+        </div>
+        <div className="credits-right">
+          {updateAvailable ? (
+            <button
+              className="credits-update"
+              onClick={handleUpdate}
+              disabled={updating}
+            >
+              {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
+            </button>
+          ) : (
+            <span className="credits-version">v1.3.0</span>
+          )}
+        </div>
+      </div>
+      </>
+      ) : mode === 'image' ? (
+      <>
+      {renderHeader(true)}
+      <ImageCompressor
+        isDragging={isDragging}
+        outputSettings={outputSettings}
+        notificationsEnabled={notificationsEnabled}
+        notifyUser={notifyUser}
+      />
+      <div className="credits">
+        <div className="credits-left">
+          <IconRobot /> {t.credits}
+        </div>
+        <div className="credits-right">
+          {updateAvailable ? (
+            <button
+              className="credits-update"
+              onClick={handleUpdate}
+              disabled={updating}
+            >
+              {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
+            </button>
+          ) : (
+            <span className="credits-version">v1.3.0</span>
+          )}
+        </div>
+      </div>
+      </>
+      ) : (
+      <>
+      {renderHeader(true)}
 
       {isDragging && (
         <div className="drop-overlay">
@@ -943,6 +1037,376 @@ function IconBack() {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="15 18 9 12 15 6" />
     </svg>
+  );
+}
+
+function IconImage() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <polyline points="21 15 16 10 5 21" />
+    </svg>
+  );
+}
+
+function IconVideoLarge() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+      <line x1="7" y1="2" x2="7" y2="22" />
+      <line x1="17" y1="2" x2="17" y2="22" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <line x1="2" y1="7" x2="7" y2="7" />
+      <line x1="2" y1="17" x2="7" y2="17" />
+      <line x1="17" y1="7" x2="22" y2="7" />
+      <line x1="17" y1="17" x2="22" y2="17" />
+    </svg>
+  );
+}
+
+function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void }) {
+  const { t } = useT();
+  return (
+    <div className="home-screen">
+      <span className="home-title">{t.selectMode}</span>
+      <div className="mode-cards">
+        <button className="mode-card" onClick={() => onSelectMode('video')}>
+          <div className="mode-card-icon"><IconVideoLarge /></div>
+          <span className="mode-card-title">{t.videoMode}</span>
+          <span className="mode-card-hint">{t.videoModeHint}</span>
+        </button>
+        <button className="mode-card" onClick={() => onSelectMode('image')}>
+          <div className="mode-card-icon"><IconImage /></div>
+          <span className="mode-card-title">{t.imageMode}</span>
+          <span className="mode-card-hint">{t.imageModeHint}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ImageCompressor({
+  isDragging,
+  outputSettings,
+  notificationsEnabled,
+  notifyUser,
+}: {
+  isDragging: boolean;
+  outputSettings: OutputSettings;
+  notificationsEnabled: boolean;
+  notifyUser: (title: string, body: string) => Promise<void>;
+}) {
+  const { t, lang } = useT();
+  const [imageJobs, setImageJobs] = useState<ImageJob[]>([]);
+  const [imageOutputDir, setImageOutputDir] = useState('');
+  const [imageFormat, setImageFormat] = useState<ImageOutputFormat>('original');
+  const [imageQuality, setImageQuality] = useState(80);
+  const [imageRunning, setImageRunning] = useState(false);
+
+  const resolveImageOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
+    if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
+    if (outputSettings.mode === 'always-ask') return pickFolder();
+    return joinPath(dirName(sourcePath), 'comprimidos');
+  }, [outputSettings]);
+
+  const addImageJobs = useCallback(async (paths: string[], outDir: string) => {
+    const newJobs: ImageJob[] = [];
+    for (const p of paths) {
+      const fileName = baseName(p);
+      const size = await invoke<number>('get_file_size', { filePath: p });
+      const ext = extName(p).toLowerCase();
+      const resolvedFormat = imageFormat === 'original' ? ext : imageFormat;
+      const outFileName = imageFormat === 'original' ? fileName : changeExt(fileName, imageFormat);
+      const thumbnail = await invoke<string>('image_thumbnail', { filePath: p }).catch(() => undefined);
+      newJobs.push({
+        id: nextId(),
+        inputPath: p,
+        fileName,
+        outputPath: joinPath(outDir, outFileName),
+        inputSize: size,
+        outputSize: 0,
+        outputFormat: imageFormat,
+        quality: imageQuality,
+        status: 'pendente',
+        thumbnail,
+      });
+    }
+    setImageJobs((prev) => [...prev, ...newJobs]);
+  }, [imageFormat, imageQuality]);
+
+  const handleSelectImageFolder = useCallback(async () => {
+    const folder = await pickFolder();
+    if (!folder) return;
+    const images = await invoke<VideoFile[]>('scan_images', { folderPath: folder });
+    if (images.length === 0) { alert(t.noImagesFound); return; }
+    const outDir = await resolveImageOutputDir(images[0].path);
+    if (!outDir) return;
+    setImageOutputDir(outDir);
+    await addImageJobs(images.map((i) => i.path), outDir);
+  }, [addImageJobs, resolveImageOutputDir, t]);
+
+  const handleSelectImageFiles = useCallback(async () => {
+    const files = await pickImageFiles();
+    if (files.length === 0) return;
+    const outDir = await resolveImageOutputDir(files[0]);
+    if (!outDir) return;
+    setImageOutputDir(outDir);
+    await addImageJobs(files, outDir);
+  }, [addImageJobs, resolveImageOutputDir]);
+
+  // Drag & drop para imagens
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
+      const paths = event.payload.paths || [];
+      const imagePaths: string[] = [];
+
+      for (const p of paths) {
+        const ext = extName(p);
+        if (IMAGE_EXTS.includes(ext)) {
+          imagePaths.push(p);
+        } else {
+          const images = await invoke<VideoFile[]>('scan_images', { folderPath: p }).catch(() => []);
+          imagePaths.push(...images.map((v) => v.path));
+        }
+      }
+
+      if (imagePaths.length === 0) return;
+
+      const outDir = await resolveImageOutputDir(imagePaths[0]);
+      if (!outDir) return;
+      setImageOutputDir(outDir);
+      await addImageJobs(imagePaths, outDir);
+    });
+
+    return () => { unlisten.then((fn) => fn()); };
+  }, [addImageJobs, resolveImageOutputDir]);
+
+  // Ouvir eventos de conclusão/erro
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    listen<{ jobId: string; outputSize: number }>('image-done', (event) => {
+      const { jobId, outputSize } = event.payload;
+      setImageJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'concluido' as ImageJobStatus, outputSize } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    listen<{ jobId: string; message: string }>('image-error', (event) => {
+      const { jobId, message } = event.payload;
+      setImageJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'erro' as ImageJobStatus, errorMessage: message } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    return () => { unlisteners.forEach((fn) => fn()); };
+  }, []);
+
+  // Notificar ao concluir tudo
+  useEffect(() => {
+    if (!imageRunning) return;
+    const allDone = imageJobs.every((j) => j.status === 'concluido' || j.status === 'erro');
+    if (imageJobs.length > 0 && allDone) {
+      setImageRunning(false);
+      const done = imageJobs.filter((j) => j.status === 'concluido').length;
+      const errors = imageJobs.filter((j) => j.status === 'erro').length;
+      const body = errors > 0
+        ? `${done} ${lang === 'pt' ? 'imagem(ns) comprimida(s),' : 'image(s) compressed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
+        : `${done} ${lang === 'pt' ? 'imagem(ns) comprimida(s) com sucesso!' : 'image(s) compressed successfully!'}`;
+      notifyUser(t.compressionDone, body);
+    }
+  }, [imageJobs, imageRunning, t, lang, notifyUser]);
+
+  const handleCompressImages = useCallback(async () => {
+    const pending = imageJobs.filter((j) => j.status === 'pendente');
+    if (pending.length === 0) return;
+
+    setImageRunning(true);
+    const jobsToSend = pending.map((j) => {
+      const ext = extName(j.inputPath).toLowerCase();
+      const resolvedFormat = j.outputFormat === 'original' ? ext : j.outputFormat;
+      const outFileName = j.outputFormat === 'original' ? j.fileName : changeExt(j.fileName, j.outputFormat);
+      return {
+        id: j.id,
+        inputPath: j.inputPath,
+        fileName: j.fileName,
+        outputPath: joinPath(imageOutputDir, outFileName),
+        inputSize: j.inputSize,
+        outputFormat: resolvedFormat,
+        quality: j.quality,
+      };
+    });
+
+    await invoke('compress_images', { jobs: jobsToSend });
+  }, [imageJobs, imageOutputDir]);
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setImageJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const handleClearImages = useCallback(() => {
+    setImageJobs([]);
+    setImageOutputDir('');
+  }, []);
+
+  const handleOpenImageOutput = useCallback(async () => {
+    if (imageOutputDir) await invoke('open_folder', { folderPath: imageOutputDir });
+  }, [imageOutputDir]);
+
+  const imageTotals = useMemo(() => {
+    const done = imageJobs.filter((j) => j.status === 'concluido');
+    const totalIn = done.reduce((s, j) => s + j.inputSize, 0);
+    const totalOut = done.reduce((s, j) => s + j.outputSize, 0);
+    const pct = totalIn > 0 ? Math.round((1 - totalOut / totalIn) * 100) : 0;
+    return { totalIn, totalOut, done: done.length, pct };
+  }, [imageJobs]);
+
+  const hasPendingImages = imageJobs.some((j) => j.status === 'pendente');
+
+  return (
+    <>
+      {isDragging && (
+        <div className="drop-overlay">
+          <div className="drop-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>{t.dropHere}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="content">
+        <div className="section">
+          <div className="section-label">{t.selectImages}</div>
+          <div className="row">
+            <button className="btn btn-with-icon" onClick={handleSelectImageFolder} disabled={imageRunning}>
+              <IconFolder /> {t.selectImageFolder}
+            </button>
+            <button className="btn btn-with-icon" onClick={handleSelectImageFiles} disabled={imageRunning}>
+              <IconImage /> {t.selectImages}
+            </button>
+            {imageJobs.length > 0 && !imageRunning && (
+              <button className="btn" onClick={handleClearImages}>
+                {t.clearList}
+              </button>
+            )}
+          </div>
+          <div className="hint" style={{ marginTop: 6 }}>{t.dragHint}</div>
+          {imageOutputDir && (
+            <div className="hint output-dir-row">
+              {t.savingTo} <strong>{imageOutputDir}</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.compressionOptions}</div>
+          <div className="options">
+            <div className="option-group">
+              <div className="section-label">{t.outputFormatImage}</div>
+              <div className="pill-row">
+                <Pill active={imageFormat === 'original'} onClick={() => setImageFormat('original')}>{t.keepOriginalFormat}</Pill>
+                <Pill active={imageFormat === 'jpg'} onClick={() => setImageFormat('jpg')}>JPG</Pill>
+                <Pill active={imageFormat === 'png'} onClick={() => setImageFormat('png')}>PNG</Pill>
+                <Pill active={imageFormat === 'webp'} onClick={() => setImageFormat('webp')}>WebP</Pill>
+              </div>
+            </div>
+            <div className="option-group">
+              <div className="section-label">{t.imageQuality}</div>
+              <div className="pill-row">
+                {[60, 70, 80, 90, 100].map((q) => (
+                  <Pill key={q} active={imageQuality === q} onClick={() => setImageQuality(q)}>
+                    {q}
+                  </Pill>
+                ))}
+              </div>
+              <div className="hint">{t.imageQualityHint}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.queue} ({imageJobs.length})</div>
+          {imageJobs.length === 0 ? (
+            <div className="empty">{t.emptyImageQueue}</div>
+          ) : (
+            <div className="queue">
+              {imageJobs.map((job) => (
+                <div className="job" key={job.id}>
+                  <div className="job-top">
+                    {job.thumbnail && (
+                      <img className="image-thumb" src={job.thumbnail} alt="" />
+                    )}
+                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                    <span className="format-badge">
+                      {extName(job.inputPath).toUpperCase()}
+                      {job.outputFormat !== 'original' && ` → ${job.outputFormat.toUpperCase()}`}
+                    </span>
+                    <span className={`status-badge status-${job.status}`}>
+                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
+                    </span>
+                    {job.status === 'concluido' && job.outputSize > 0 ? (
+                      <span className="job-meta">
+                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                        {job.inputSize > 0 && (
+                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                    )}
+                    {job.status === 'pendente' && !imageRunning && (
+                      <button className="remove-btn" onClick={() => handleRemoveImage(job.id)} title={t.remove}>✕</button>
+                    )}
+                  </div>
+                  {job.status === 'erro' && job.errorMessage && (
+                    <div className="job-error">{job.errorMessage}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="footer">
+        <div className="summary">
+          {imageTotals.done > 0 && (
+            <>
+              <strong>{imageTotals.done}</strong> {t.completedCount}
+              {imageTotals.totalIn > 0 && (
+                <>
+                  {' '}· {formatBytes(imageTotals.totalIn)} → {formatBytes(imageTotals.totalOut)}
+                  {' '}· <strong className="green">−{imageTotals.pct}%</strong>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="row">
+          {imageTotals.done > 0 && imageOutputDir && (
+            <button className="btn btn-with-icon" onClick={handleOpenImageOutput}>
+              <IconExternalLink /> {t.openFolder}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={handleCompressImages}
+            disabled={!hasPendingImages || imageRunning}
+          >
+            {t.compressImages} {imageJobs.filter((j) => j.status === 'pendente').length || ''}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

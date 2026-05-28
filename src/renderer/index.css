@@ -780,3 +780,95 @@ body {
   color: var(--text-dim);
   opacity: 0.5;
 }
+
+/* ---------- Home screen ---------- */
+
+.home-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 40px 24px;
+}
+
+.home-screen .home-title {
+  font-size: 15px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.mode-cards {
+  display: flex;
+  gap: 16px;
+}
+
+.mode-card {
+  background: var(--bg-elev);
+  border: 2px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 36px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+  min-width: 180px;
+}
+
+.mode-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 24px rgba(79, 140, 255, 0.12);
+  transform: translateY(-2px);
+}
+
+.mode-card-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(79, 140, 255, 0.1);
+  color: var(--accent);
+}
+
+.mode-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.mode-card-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---------- Image compressor ---------- */
+
+.quality-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.quality-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 32px;
+  text-align: center;
+}
+
+.image-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
