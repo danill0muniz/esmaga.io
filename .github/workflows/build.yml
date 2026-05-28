@@ -18,7 +18,7 @@ jobs:
           - platform: macos-latest
             target: aarch64-apple-darwin
             ffmpeg_suffix: aarch64-apple-darwin
-          - platform: macos-latest
+          - platform: macos-13
             target: x86_64-apple-darwin
             ffmpeg_suffix: x86_64-apple-darwin
           - platform: ubuntu-22.04
@@ -60,27 +60,16 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Download FFmpeg binaries (macOS ARM)
-        if: matrix.platform == 'macos-latest' && matrix.target == 'aarch64-apple-darwin'
+      - name: Download FFmpeg binaries (macOS)
+        if: startsWith(matrix.platform, 'macos')
         run: |
-          curl -L -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
-          curl -L -o ffprobe.zip "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
-          unzip -o ffmpeg.zip
-          unzip -o ffprobe.zip
-          mv ffmpeg src-tauri/ffmpeg-aarch64-apple-darwin
-          mv ffprobe src-tauri/ffprobe-aarch64-apple-darwin
+          brew install ffmpeg
+          FFMPEG_PATH=$(which ffmpeg)
+          FFPROBE_PATH=$(which ffprobe)
+          cp "$FFMPEG_PATH" "src-tauri/ffmpeg-${{ matrix.ffmpeg_suffix }}"
+          cp "$FFPROBE_PATH" "src-tauri/ffprobe-${{ matrix.ffmpeg_suffix }}"
           chmod +x src-tauri/ffmpeg-* src-tauri/ffprobe-*
-
-      - name: Download FFmpeg binaries (macOS Intel)
-        if: matrix.platform == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
-        run: |
-          curl -L -o ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
-          curl -L -o ffprobe.zip "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
-          unzip -o ffmpeg.zip
-          unzip -o ffprobe.zip
-          mv ffmpeg src-tauri/ffmpeg-x86_64-apple-darwin
-          mv ffprobe src-tauri/ffprobe-x86_64-apple-darwin
-          chmod +x src-tauri/ffmpeg-* src-tauri/ffprobe-*
+          file "src-tauri/ffmpeg-${{ matrix.ffmpeg_suffix }}"
 
       - name: Download FFmpeg binaries (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -107,7 +96,7 @@ jobs:
         run: npx tauri build --target ${{ matrix.target }}
 
       - name: Upload artifacts (macOS)
-        if: matrix.platform == 'macos-latest'
+        if: startsWith(matrix.platform, 'macos')
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.target }}
