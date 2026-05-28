@@ -778,7 +778,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.3.0</span>
+            <span className="credits-version">v1.4.0</span>
           )}
         </div>
       </div>
@@ -806,7 +806,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.3.0</span>
+            <span className="credits-version">v1.4.0</span>
           )}
         </div>
       </div>
@@ -1019,7 +1019,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.3.0</span>
+            <span className="credits-version">v1.4.0</span>
           )}
         </div>
       </div>
