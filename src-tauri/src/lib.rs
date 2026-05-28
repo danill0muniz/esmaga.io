@@ -332,6 +332,33 @@ fn parse_time(line: &str) -> Option<f64> {
     Some(h * 3600.0 + m * 60.0 + s)
 }
 
+// ---------- Tipos de PDF ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub input_size: u64,
+    pub quality: String, // "screen", "ebook", "printer", "prepress"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfDoneEvent {
+    pub job_id: String,
+    pub output_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfErrorEvent {
+    pub job_id: String,
+    pub message: String,
+}
+
 // ---------- Comandos Tauri ----------
 
 #[tauri::command]
@@ -637,6 +664,112 @@ async fn run_ffmpeg(
     Ok(size)
 }
 
+// ---------- Comandos de PDF ----------
+
+#[tauri::command]
+fn scan_pdfs(folder_path: String) -> Vec<VideoFile> {
+    let mut pdfs = Vec::new();
+    let Ok(entries) = fs::read_dir(&folder_path) else {
+        return pdfs;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+        if ext != "pdf" {
+            continue;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        pdfs.push(VideoFile {
+            path: path.to_string_lossy().to_string(),
+            size,
+        });
+    }
+    pdfs
+}
+
+#[tauri::command]
+async fn compress_pdfs(app: AppHandle, jobs: Vec<PdfJob>) -> Result<(), String> {
+    for job in &jobs {
+        if let Some(parent) = Path::new(&job.output_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let gs_path = find_ghostscript();
+        let result = std::process::Command::new(&gs_path)
+            .args([
+                "-sDEVICE=pdfwrite",
+                "-dCompatibilityLevel=1.4",
+                &format!("-dPDFSETTINGS=/{}", job.quality),
+                "-dNOPAUSE",
+                "-dQUIET",
+                "-dBATCH",
+                &format!("-sOutputFile={}", job.output_path),
+                &job.input_path,
+            ])
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() => {
+                let output_size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+                let _ = app.emit(
+                    "pdf-done",
+                    PdfDoneEvent {
+                        job_id: job.id.clone(),
+                        output_size,
+                    },
+                );
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let _ = app.emit(
+                    "pdf-error",
+                    PdfErrorEvent {
+                        job_id: job.id.clone(),
+                        message: format!("Ghostscript error: {}", stderr),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    "pdf-error",
+                    PdfErrorEvent {
+                        job_id: job.id.clone(),
+                        message: format!("Ghostscript não encontrado. Instale com: brew install ghostscript (Mac) ou apt install ghostscript (Linux). Erro: {}", e),
+                    },
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+fn find_ghostscript() -> String {
+    for path in &[
+        "gs",
+        "/opt/homebrew/bin/gs",
+        "/usr/local/bin/gs",
+        "/usr/bin/gs",
+        "gswin64c",
+        "gswin32c",
+    ] {
+        if std::process::Command::new(path)
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            return path.to_string();
+        }
+    }
+    "gs".to_string()
+}
+
 // ---------- Comandos de imagem ----------
 
 #[tauri::command]
@@ -932,6 +1065,8 @@ pub fn run() {
             scan_images,
             compress_images,
             image_thumbnail,
+            scan_pdfs,
+            compress_pdfs,
         ])
         .run(tauri::generate_context!())
         .expect("Erro ao iniciar o app");

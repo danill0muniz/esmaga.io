@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { detectLang, saveLang, getTranslations, LangContext, type Lang } from './i18n';
 import { useT } from './i18n';
 
-type AppMode = 'home' | 'video' | 'image';
+type AppMode = 'home' | 'video' | 'image' | 'pdf';
 type VideoFormat = 'h264' | 'h265';
 type Quality = 'alta' | 'media' | 'baixa';
 type Resolution = 'original' | '1080p' | '720p';
@@ -64,6 +64,21 @@ interface ImageJob {
   status: ImageJobStatus;
   errorMessage?: string;
   thumbnail?: string;
+}
+
+type PdfQuality = 'screen' | 'ebook' | 'printer' | 'prepress';
+type PdfJobStatus = 'pendente' | 'concluido' | 'erro';
+
+interface PdfJob {
+  id: string;
+  inputPath: string;
+  fileName: string;
+  outputPath: string;
+  inputSize: number;
+  outputSize: number;
+  quality: PdfQuality;
+  status: PdfJobStatus;
+  errorMessage?: string;
 }
 
 type OutputMode = 'same-folder' | 'always-ask' | 'fixed';
@@ -265,7 +280,20 @@ async function pickImageFiles(): Promise<string[]> {
   return Array.isArray(result) ? result : [result];
 }
 
+async function pickPdfFiles(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: 'PDFs',
+      extensions: ['pdf'],
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif'];
+const PDF_EXTS = ['pdf'];
 
 // mapeamento de status para tradução
 function statusText(status: JobStatus, t: ReturnType<typeof getTranslations>): string {
@@ -778,7 +806,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.4.0</span>
+            <span className="credits-version">v1.5.0</span>
           )}
         </div>
       </div>
@@ -806,7 +834,35 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.4.0</span>
+            <span className="credits-version">v1.5.0</span>
+          )}
+        </div>
+      </div>
+      </>
+      ) : mode === 'pdf' ? (
+      <>
+      {renderHeader(true)}
+      <PdfCompressor
+        isDragging={isDragging}
+        outputSettings={outputSettings}
+        notificationsEnabled={notificationsEnabled}
+        notifyUser={notifyUser}
+      />
+      <div className="credits">
+        <div className="credits-left">
+          <IconRobot /> {t.credits}
+        </div>
+        <div className="credits-right">
+          {updateAvailable ? (
+            <button
+              className="credits-update"
+              onClick={handleUpdate}
+              disabled={updating}
+            >
+              {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
+            </button>
+          ) : (
+            <span className="credits-version">v1.5.0</span>
           )}
         </div>
       </div>
@@ -1019,7 +1075,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.4.0</span>
+            <span className="credits-version">v1.5.0</span>
           )}
         </div>
       </div>
@@ -1065,6 +1121,18 @@ function IconVideoLarge() {
   );
 }
 
+function IconDocument() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
 function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void }) {
   const { t } = useT();
   return (
@@ -1080,6 +1148,11 @@ function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void })
           <div className="mode-card-icon"><IconImage /></div>
           <span className="mode-card-title">{t.imageMode}</span>
           <span className="mode-card-hint">{t.imageModeHint}</span>
+        </button>
+        <button className="mode-card" onClick={() => onSelectMode('pdf')}>
+          <div className="mode-card-icon"><IconDocument /></div>
+          <span className="mode-card-title">{t.pdfMode}</span>
+          <span className="mode-card-hint">{t.pdfModeHint}</span>
         </button>
       </div>
     </div>
@@ -1410,6 +1483,301 @@ function ImageCompressor({
   );
 }
 
+function PdfCompressor({
+  isDragging,
+  outputSettings,
+  notificationsEnabled,
+  notifyUser,
+}: {
+  isDragging: boolean;
+  outputSettings: OutputSettings;
+  notificationsEnabled: boolean;
+  notifyUser: (title: string, body: string) => Promise<void>;
+}) {
+  const { t, lang } = useT();
+  const [pdfJobs, setPdfJobs] = useState<PdfJob[]>([]);
+  const [pdfOutputDir, setPdfOutputDir] = useState('');
+  const [pdfQuality, setPdfQuality] = useState<PdfQuality>('ebook');
+  const [pdfRunning, setPdfRunning] = useState(false);
+
+  const resolvePdfOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
+    if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
+    if (outputSettings.mode === 'always-ask') return pickFolder();
+    return joinPath(dirName(sourcePath), 'comprimidos');
+  }, [outputSettings]);
+
+  const addPdfJobs = useCallback(async (paths: string[], outDir: string) => {
+    const newJobs: PdfJob[] = [];
+    for (const p of paths) {
+      const fileName = baseName(p);
+      const size = await invoke<number>('get_file_size', { filePath: p });
+      newJobs.push({
+        id: nextId(),
+        inputPath: p,
+        fileName,
+        outputPath: joinPath(outDir, fileName),
+        inputSize: size,
+        outputSize: 0,
+        quality: pdfQuality,
+        status: 'pendente',
+      });
+    }
+    setPdfJobs((prev) => [...prev, ...newJobs]);
+  }, [pdfQuality]);
+
+  const handleSelectPdfFolder = useCallback(async () => {
+    const folder = await pickFolder();
+    if (!folder) return;
+    const pdfs = await invoke<VideoFile[]>('scan_pdfs', { folderPath: folder });
+    if (pdfs.length === 0) { alert(t.noPdfsFound); return; }
+    const outDir = await resolvePdfOutputDir(pdfs[0].path);
+    if (!outDir) return;
+    setPdfOutputDir(outDir);
+    await addPdfJobs(pdfs.map((p) => p.path), outDir);
+  }, [addPdfJobs, resolvePdfOutputDir, t]);
+
+  const handleSelectPdfFiles = useCallback(async () => {
+    const files = await pickPdfFiles();
+    if (files.length === 0) return;
+    const outDir = await resolvePdfOutputDir(files[0]);
+    if (!outDir) return;
+    setPdfOutputDir(outDir);
+    await addPdfJobs(files, outDir);
+  }, [addPdfJobs, resolvePdfOutputDir]);
+
+  // Drag & drop para PDFs
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
+      const paths = event.payload.paths || [];
+      const pdfPaths: string[] = [];
+
+      for (const p of paths) {
+        const ext = extName(p);
+        if (PDF_EXTS.includes(ext)) {
+          pdfPaths.push(p);
+        } else {
+          const pdfs = await invoke<VideoFile[]>('scan_pdfs', { folderPath: p }).catch(() => []);
+          pdfPaths.push(...pdfs.map((v) => v.path));
+        }
+      }
+
+      if (pdfPaths.length === 0) return;
+
+      const outDir = await resolvePdfOutputDir(pdfPaths[0]);
+      if (!outDir) return;
+      setPdfOutputDir(outDir);
+      await addPdfJobs(pdfPaths, outDir);
+    });
+
+    return () => { unlisten.then((fn) => fn()); };
+  }, [addPdfJobs, resolvePdfOutputDir]);
+
+  // Ouvir eventos de conclusão/erro
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    listen<{ jobId: string; outputSize: number }>('pdf-done', (event) => {
+      const { jobId, outputSize } = event.payload;
+      setPdfJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'concluido' as PdfJobStatus, outputSize } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    listen<{ jobId: string; message: string }>('pdf-error', (event) => {
+      const { jobId, message } = event.payload;
+      setPdfJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'erro' as PdfJobStatus, errorMessage: message } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    return () => { unlisteners.forEach((fn) => fn()); };
+  }, []);
+
+  // Notificar ao concluir tudo
+  useEffect(() => {
+    if (!pdfRunning) return;
+    const allDone = pdfJobs.every((j) => j.status === 'concluido' || j.status === 'erro');
+    if (pdfJobs.length > 0 && allDone) {
+      setPdfRunning(false);
+      const done = pdfJobs.filter((j) => j.status === 'concluido').length;
+      const errors = pdfJobs.filter((j) => j.status === 'erro').length;
+      const body = errors > 0
+        ? `${done} PDF(s) ${lang === 'pt' ? 'comprimido(s),' : 'compressed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
+        : `${done} PDF(s) ${lang === 'pt' ? 'comprimido(s) com sucesso!' : 'compressed successfully!'}`;
+      notifyUser(t.compressionDone, body);
+    }
+  }, [pdfJobs, pdfRunning, t, lang, notifyUser]);
+
+  const handleCompressPdfs = useCallback(async () => {
+    const pending = pdfJobs.filter((j) => j.status === 'pendente');
+    if (pending.length === 0) return;
+
+    setPdfRunning(true);
+    const jobsToSend = pending.map((j) => ({
+      id: j.id,
+      inputPath: j.inputPath,
+      fileName: j.fileName,
+      outputPath: joinPath(pdfOutputDir, j.fileName),
+      inputSize: j.inputSize,
+      quality: j.quality,
+    }));
+
+    await invoke('compress_pdfs', { jobs: jobsToSend });
+  }, [pdfJobs, pdfOutputDir]);
+
+  const handleRemovePdf = useCallback((id: string) => {
+    setPdfJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const handleClearPdfs = useCallback(() => {
+    setPdfJobs([]);
+    setPdfOutputDir('');
+  }, []);
+
+  const handleOpenPdfOutput = useCallback(async () => {
+    if (pdfOutputDir) await invoke('open_folder', { folderPath: pdfOutputDir });
+  }, [pdfOutputDir]);
+
+  const pdfTotals = useMemo(() => {
+    const done = pdfJobs.filter((j) => j.status === 'concluido');
+    const totalIn = done.reduce((s, j) => s + j.inputSize, 0);
+    const totalOut = done.reduce((s, j) => s + j.outputSize, 0);
+    const pct = totalIn > 0 ? Math.round((1 - totalOut / totalIn) * 100) : 0;
+    return { totalIn, totalOut, done: done.length, pct };
+  }, [pdfJobs]);
+
+  const hasPendingPdfs = pdfJobs.some((j) => j.status === 'pendente');
+
+  return (
+    <>
+      {isDragging && (
+        <div className="drop-overlay">
+          <div className="drop-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>{t.dropHere}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="content">
+        <div className="section">
+          <div className="section-label">{t.selectPdfs}</div>
+          <div className="row">
+            <button className="btn btn-with-icon" onClick={handleSelectPdfFolder} disabled={pdfRunning}>
+              <IconFolder /> {t.selectPdfFolder}
+            </button>
+            <button className="btn btn-with-icon" onClick={handleSelectPdfFiles} disabled={pdfRunning}>
+              <IconDocument /> {t.selectPdfs}
+            </button>
+            {pdfJobs.length > 0 && !pdfRunning && (
+              <button className="btn" onClick={handleClearPdfs}>
+                {t.clearList}
+              </button>
+            )}
+          </div>
+          <div className="hint" style={{ marginTop: 6 }}>{t.dragHint}</div>
+          {pdfOutputDir && (
+            <div className="hint output-dir-row">
+              {t.savingTo} <strong>{pdfOutputDir}</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.compressionOptions}</div>
+          <div className="options">
+            <div className="option-group">
+              <div className="section-label">{t.pdfQuality}</div>
+              <div className="pill-row">
+                <Pill active={pdfQuality === 'screen'} onClick={() => setPdfQuality('screen')}>{t.pdfScreen}</Pill>
+                <Pill active={pdfQuality === 'ebook'} onClick={() => setPdfQuality('ebook')}>{t.pdfEbook}</Pill>
+                <Pill active={pdfQuality === 'printer'} onClick={() => setPdfQuality('printer')}>{t.pdfPrinter}</Pill>
+                <Pill active={pdfQuality === 'prepress'} onClick={() => setPdfQuality('prepress')}>{t.pdfPrepress}</Pill>
+              </div>
+              <div className="hint">{t.pdfQualityHint}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.queue} ({pdfJobs.length})</div>
+          {pdfJobs.length === 0 ? (
+            <div className="empty">{t.emptyPdfQueue}</div>
+          ) : (
+            <div className="queue">
+              {pdfJobs.map((job) => (
+                <div className="job" key={job.id}>
+                  <div className="job-top">
+                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                    <span className="format-badge">PDF</span>
+                    <span className={`status-badge status-${job.status}`}>
+                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
+                    </span>
+                    {job.status === 'concluido' && job.outputSize > 0 ? (
+                      <span className="job-meta">
+                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                        {job.inputSize > 0 && (
+                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                    )}
+                    {job.status === 'pendente' && !pdfRunning && (
+                      <button className="remove-btn" onClick={() => handleRemovePdf(job.id)} title={t.remove}>✕</button>
+                    )}
+                  </div>
+                  {job.status === 'erro' && job.errorMessage && (
+                    <div className="job-error">{job.errorMessage}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="footer">
+        <div className="summary">
+          {pdfTotals.done > 0 && (
+            <>
+              <strong>{pdfTotals.done}</strong> {t.completedCount}
+              {pdfTotals.totalIn > 0 && (
+                <>
+                  {' '}· {formatBytes(pdfTotals.totalIn)} → {formatBytes(pdfTotals.totalOut)}
+                  {' '}· <strong className="green">−{pdfTotals.pct}%</strong>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="row">
+          {pdfTotals.done > 0 && pdfOutputDir && (
+            <button className="btn btn-with-icon" onClick={handleOpenPdfOutput}>
+              <IconExternalLink /> {t.openFolder}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={handleCompressPdfs}
+            disabled={!hasPendingPdfs || pdfRunning}
+          >
+            {t.compressPdfs} {pdfJobs.filter((j) => j.status === 'pendente').length || ''}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function SettingsView({
   outputSettings, onChangeOutput, notificationsEnabled, onToggleNotifications,
   parallelCount, onChangeParallel, onBack, lang, changeLang, theme, onChangeTheme,
@@ -1664,7 +2032,7 @@ function SortableJobRow({ job, onRemove, running }: {
         <span className="job-name" title={job.fileName}>{job.fileName}</span>
         <span className="format-badge">{job.inputFormat} → {job.outputPath.split('.').pop()?.toUpperCase()}</span>
         <span className={`status-badge status-${job.status}`}>
-          {job.status === 'processando' && eta ? `${job.progress}% · ${eta}` : statusText(job.status, t)}
+          {job.status === 'processando' ? `${job.progress}%` : statusText(job.status, t)}
         </span>
         {job.status === 'concluido' && job.outputSize > 0 ? (
           <span className="job-meta">
