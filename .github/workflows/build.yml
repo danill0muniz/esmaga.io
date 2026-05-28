@@ -14,14 +14,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
 
-      - run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npx tsc -p tsconfig.node.json && npx vite build && npx electron-builder --mac --publish never
 
       - uses: actions/upload-artifact@v4
         with:
@@ -35,14 +33,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
 
-      - run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npx tsc -p tsconfig.node.json && npx vite build && npx electron-builder --win --publish never
 
       - uses: actions/upload-artifact@v4
         with:
