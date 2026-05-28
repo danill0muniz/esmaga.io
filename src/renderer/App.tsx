@@ -7,6 +7,25 @@ import type {
   Resolution,
 } from '../shared/types';
 
+type OutputMode = 'same-folder' | 'always-ask' | 'fixed';
+
+interface OutputSettings {
+  mode: OutputMode;
+  fixedPath: string;
+}
+
+function loadOutputSettings(): OutputSettings {
+  try {
+    const raw = localStorage.getItem('outputSettings');
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { mode: 'same-folder', fixedPath: '' };
+}
+
+function saveOutputSettings(s: OutputSettings) {
+  localStorage.setItem('outputSettings', JSON.stringify(s));
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -39,12 +58,18 @@ export default function App() {
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [outputDir, setOutputDir] = useState<string>('');
   const [running, setRunning] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [outputSettings, setOutputSettingsState] = useState<OutputSettings>(loadOutputSettings);
 
   const [format, setFormat] = useState<VideoFormat>('h264');
   const [quality, setQuality] = useState<Quality>('media');
   const [resolution, setResolution] = useState<Resolution>('original');
 
-  // Listeners de eventos do main
+  const updateOutputSettings = useCallback((s: OutputSettings) => {
+    setOutputSettingsState(s);
+    saveOutputSettings(s);
+  }, []);
+
   useEffect(() => {
     window.electronAPI.onProgress(({ jobId, progress }) => {
       setJobs((prev) =>
@@ -71,7 +96,6 @@ export default function App() {
     });
   }, []);
 
-  // Detecta quando a fila terminou para liberar a UI
   useEffect(() => {
     if (!running) return;
     const allDone = jobs.every(
@@ -81,6 +105,18 @@ export default function App() {
       setRunning(false);
     }
   }, [jobs, running]);
+
+  const resolveOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
+    if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) {
+      return outputSettings.fixedPath;
+    }
+    if (outputSettings.mode === 'always-ask') {
+      const folder = await window.electronAPI.selectFolder();
+      return folder;
+    }
+    // same-folder: cria subpasta /comprimidos
+    return joinPath(dirName(sourcePath), 'comprimidos');
+  }, [outputSettings]);
 
   const addJobsFromPaths = useCallback(
     async (items: { path: string; size: number }[], outDir: string) => {
@@ -113,29 +149,39 @@ export default function App() {
       alert('Nenhum vídeo encontrado nessa pasta.');
       return;
     }
-    const outDir = joinPath(folder, 'comprimidos');
+    const outDir = await resolveOutputDir(videos[0].path);
+    if (!outDir) return;
     setOutputDir(outDir);
     await addJobsFromPaths(videos, outDir);
-  }, [addJobsFromPaths]);
+  }, [addJobsFromPaths, resolveOutputDir]);
 
   const handleSelectFiles = useCallback(async () => {
     const files = await window.electronAPI.selectFiles();
     if (files.length === 0) return;
-    // pasta de saída = pasta do primeiro arquivo + /comprimidos
-    const outDir = joinPath(dirName(files[0]), 'comprimidos');
+    const outDir = await resolveOutputDir(files[0]);
+    if (!outDir) return;
     setOutputDir(outDir);
-    // precisamos do tamanho; scanFolder não serve p/ arquivos avulsos,
-    // então marcamos size 0 e ele é só informativo até concluir
     const items = files.map((f) => ({ path: f, size: 0 }));
     await addJobsFromPaths(items, outDir);
-  }, [addJobsFromPaths]);
+  }, [addJobsFromPaths, resolveOutputDir]);
+
+  const handleChangeOutputDir = useCallback(async () => {
+    const folder = await window.electronAPI.selectFolder();
+    if (!folder) return;
+    setOutputDir(folder);
+    setJobs((prev) =>
+      prev.map((j) => ({
+        ...j,
+        outputPath: joinPath(folder, j.fileName),
+      }))
+    );
+  }, []);
 
   const handleStart = useCallback(async () => {
     const pending = jobs.filter((j) => j.status === 'pendente');
     if (pending.length === 0) return;
     setRunning(true);
     const settings: CompressionSettings = { format, quality, resolution };
-    // recalcula outputPath conforme a pasta de saída atual
     const prepared = pending.map((j) => ({
       ...j,
       outputPath: joinPath(outputDir, j.fileName),
@@ -169,10 +215,11 @@ export default function App() {
   }, [outputDir]);
 
   const totals = useMemo(() => {
-    const totalIn = jobs.reduce((s, j) => s + j.inputSize, 0);
-    const totalOut = jobs.reduce((s, j) => s + j.outputSize, 0);
-    const done = jobs.filter((j) => j.status === 'concluido').length;
-    return { totalIn, totalOut, done };
+    const done = jobs.filter((j) => j.status === 'concluido');
+    const totalIn = done.reduce((s, j) => s + j.inputSize, 0);
+    const totalOut = done.reduce((s, j) => s + j.outputSize, 0);
+    const pct = totalIn > 0 ? Math.round((1 - totalOut / totalIn) * 100) : 0;
+    return { totalIn, totalOut, done: done.length, pct };
   }, [jobs]);
 
   const hasPending = jobs.some((j) => j.status === 'pendente');
@@ -180,9 +227,28 @@ export default function App() {
   return (
     <div className="app">
       <div className="header">
-        <h1>Video Compressor</h1>
-        <p>Comprime seus vídeos mantendo qualidade — pronto para hospedar online.</p>
+        <div className="header-row">
+          <div>
+            <h1>Video Compressor</h1>
+            <p>Comprime seus vídeos mantendo qualidade — pronto para hospedar online.</p>
+          </div>
+          <button
+            className="btn btn-icon"
+            onClick={() => setShowSettings(!showSettings)}
+            title="Configurações"
+          >
+            ⚙
+          </button>
+        </div>
       </div>
+
+      {showSettings && (
+        <SettingsPanel
+          settings={outputSettings}
+          onChange={updateOutputSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       <div className="content">
         <div className="section">
@@ -201,8 +267,13 @@ export default function App() {
             )}
           </div>
           {outputDir && (
-            <div className="hint">
-              Os comprimidos vão para: <strong>{outputDir}</strong>
+            <div className="hint output-dir-row">
+              Salvando em: <strong>{outputDir}</strong>
+              {!running && (
+                <button className="btn btn-sm" onClick={handleChangeOutputDir}>
+                  Alterar
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -292,11 +363,11 @@ export default function App() {
         <div className="summary">
           {totals.done > 0 && (
             <>
-              <strong>{totals.done}</strong> concluído(s) ·{' '}
+              <strong>{totals.done}</strong> concluído(s)
               {totals.totalIn > 0 && (
                 <>
-                  de <strong>{formatBytes(totals.totalIn)}</strong> para{' '}
-                  <strong>{formatBytes(totals.totalOut)}</strong>
+                  {' '}· {formatBytes(totals.totalIn)} → {formatBytes(totals.totalOut)}
+                  {' '}· <strong className="green">−{totals.pct}%</strong>
                 </>
               )}
             </>
@@ -322,6 +393,87 @@ export default function App() {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="credits">
+        Feito por <strong>Danillo Muniz</strong> · danillo@ae.digital
+      </div>
+    </div>
+  );
+}
+
+function SettingsPanel({
+  settings,
+  onChange,
+  onClose,
+}: {
+  settings: OutputSettings;
+  onChange: (s: OutputSettings) => void;
+  onClose: () => void;
+}) {
+  const handleSelectFixed = async () => {
+    const folder = await window.electronAPI.selectFolder();
+    if (folder) {
+      onChange({ mode: 'fixed', fixedPath: folder });
+    }
+  };
+
+  return (
+    <div className="settings-panel">
+      <div className="settings-header">
+        <span className="section-label" style={{ margin: 0 }}>Configurações</span>
+        <button className="remove-btn" onClick={onClose}>✕</button>
+      </div>
+      <div className="settings-body">
+        <div className="section-label">Pasta de destino padrão</div>
+        <div className="settings-options">
+          <label className={`settings-option ${settings.mode === 'same-folder' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="output-mode"
+              checked={settings.mode === 'same-folder'}
+              onChange={() => onChange({ ...settings, mode: 'same-folder' })}
+            />
+            <div>
+              <strong>Mesma pasta dos vídeos</strong>
+              <span className="hint">Cria subpasta /comprimidos ao lado dos originais</span>
+            </div>
+          </label>
+          <label className={`settings-option ${settings.mode === 'always-ask' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="output-mode"
+              checked={settings.mode === 'always-ask'}
+              onChange={() => onChange({ ...settings, mode: 'always-ask' })}
+            />
+            <div>
+              <strong>Sempre perguntar</strong>
+              <span className="hint">Abre seletor de pasta toda vez</span>
+            </div>
+          </label>
+          <label className={`settings-option ${settings.mode === 'fixed' ? 'active' : ''}`}>
+            <input
+              type="radio"
+              name="output-mode"
+              checked={settings.mode === 'fixed'}
+              onChange={() => onChange({ ...settings, mode: 'fixed' })}
+            />
+            <div>
+              <strong>Pasta fixa</strong>
+              <span className="hint">Sempre salva no mesmo lugar</span>
+            </div>
+          </label>
+        </div>
+        {settings.mode === 'fixed' && (
+          <div className="settings-fixed-row">
+            <span className="hint">
+              {settings.fixedPath || 'Nenhuma pasta selecionada'}
+            </span>
+            <button className="btn btn-sm" onClick={handleSelectFixed}>
+              Selecionar pasta
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -364,15 +516,18 @@ function JobRow({
           {job.fileName}
         </span>
         <span className={`status-badge status-${job.status}`}>{job.status}</span>
-        <span className="job-meta">
-          {job.status === 'concluido' && job.outputSize > 0
-            ? `${formatBytes(job.outputSize)}${
-                reduction !== null ? ` · −${reduction}%` : ''
-              }`
-            : job.inputSize > 0
-            ? formatBytes(job.inputSize)
-            : ''}
-        </span>
+        {job.status === 'concluido' && job.outputSize > 0 ? (
+          <span className="job-meta">
+            {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+            {reduction !== null && (
+              <span className="green"> −{reduction}%</span>
+            )}
+          </span>
+        ) : (
+          <span className="job-meta">
+            {job.inputSize > 0 ? formatBytes(job.inputSize) : ''}
+          </span>
+        )}
         {job.status === 'pendente' && !running && (
           <button className="remove-btn" onClick={() => onRemove(job.id)} title="Remover">
             ✕
