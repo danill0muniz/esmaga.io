@@ -700,7 +700,23 @@ async fn run_ffmpeg(
     }
 
     if !exited_ok {
-        return Err("ffmpeg saiu com código de erro".to_string());
+        // Capturar as últimas linhas do stderr para diagnóstico
+        let last_lines: String = stderr_buf
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .rev()
+            .take(3)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let detail = if last_lines.is_empty() {
+            "ffmpeg saiu com código de erro".to_string()
+        } else {
+            format!("ffmpeg erro: {}", last_lines)
+        };
+        return Err(detail);
     }
 
     let size = fs::metadata(&output_path)
@@ -1392,7 +1408,21 @@ async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), Stri
                 if exited_ok {
                     Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
                 } else {
-                    Err("ffmpeg saiu com código de erro".to_string())
+                    let last_lines: String = stderr_buf
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    Err(if last_lines.is_empty() {
+                        "ffmpeg saiu com código de erro".to_string()
+                    } else {
+                        format!("ffmpeg erro: {}", last_lines)
+                    })
                 }
             } else {
                 // -c copy: rápido, sem necessidade de progresso
@@ -1402,16 +1432,41 @@ async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), Stri
                     .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
 
                 let mut exited_ok = false;
+                let mut stderr_copy = String::new();
                 while let Some(event) = rx.recv().await {
-                    if let CommandEvent::Terminated(payload) = event {
-                        exited_ok = payload.code == Some(0);
+                    match event {
+                        CommandEvent::Terminated(payload) => {
+                            exited_ok = payload.code == Some(0);
+                        }
+                        CommandEvent::Stderr(data) => {
+                            let line = String::from_utf8_lossy(&data);
+                            stderr_copy.push_str(&line);
+                            if stderr_copy.len() > 4096 {
+                                stderr_copy = stderr_copy[stderr_copy.len() - 512..].to_string();
+                            }
+                        }
+                        _ => {}
                     }
                 }
 
                 if exited_ok {
                     Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
                 } else {
-                    Err("ffmpeg saiu com código de erro".to_string())
+                    let last_lines: String = stderr_copy
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    Err(if last_lines.is_empty() {
+                        "ffmpeg saiu com código de erro".to_string()
+                    } else {
+                        format!("ffmpeg erro: {}", last_lines)
+                    })
                 }
             }
         };

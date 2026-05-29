@@ -377,6 +377,7 @@ function statusText(status: JobStatus, t: ReturnType<typeof getTranslations>): s
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('home');
+  const modeRef = useRef<AppMode>('home');
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [outputDir, setOutputDir] = useState<string>('');
   const [running, setRunning] = useState(false);
@@ -418,6 +419,9 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('appTheme', theme);
   }, [theme]);
+
+  // Manter ref sincronizado para uso em listeners
+  useEffect(() => { modeRef.current = mode; }, [mode]);
 
   const jobStartTimes = useRef<Record<string, number>>({});
 
@@ -507,10 +511,13 @@ export default function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
-  // Drag & drop
+  // Drag & drop (só processa vídeos quando está no modo video)
   useEffect(() => {
     const unlisten = listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
       setIsDragging(false);
+      // Outros modos têm seus próprios listeners de drag-drop
+      if (modeRef.current !== 'video') return;
+
       const paths = event.payload.paths || [];
       const videoPaths: string[] = [];
       const videoExts = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'wmv', 'flv'];
@@ -650,7 +657,7 @@ export default function App() {
 
   const resolveOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
     if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
-    if (outputSettings.mode === 'always-ask') return pickFolder();
+    if (outputSettings.mode === 'always-ask') return joinPath(dirName(sourcePath), 'comprimidos');
     return joinPath(dirName(sourcePath), 'comprimidos');
   }, [outputSettings]);
 
@@ -699,8 +706,9 @@ export default function App() {
   const handleSelectFiles = useCallback(async () => {
     const files = await pickFiles();
     if (files.length === 0) return;
-    const outDir = await resolveOutputDir(files[0]);
-    if (!outDir) return;
+    const outDir = outputSettings.mode === 'fixed' && outputSettings.fixedPath
+      ? outputSettings.fixedPath
+      : joinPath(dirName(files[0]), 'comprimidos');
     setOutputDir(outDir);
     const videoFiles: VideoFile[] = [];
     for (const f of files) {
@@ -1055,9 +1063,6 @@ export default function App() {
         <div className="section">
           <div className="section-label">{t.selectVideos}</div>
           <div className="row">
-            <button className="btn btn-with-icon" onClick={handleSelectFolder} disabled={running}>
-              <IconFolder /> {t.selectFolder}
-            </button>
             <button className="btn btn-with-icon" onClick={handleSelectFiles} disabled={running}>
               <IconVideo /> {t.selectFiles}
             </button>
@@ -1366,7 +1371,7 @@ function ImageCompressor({
 
   const resolveImageOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
     if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
-    if (outputSettings.mode === 'always-ask') return pickFolder();
+    if (outputSettings.mode === 'always-ask') return joinPath(dirName(sourcePath), 'comprimidos');
     return joinPath(dirName(sourcePath), 'comprimidos');
   }, [outputSettings]);
 
@@ -1553,9 +1558,6 @@ function ImageCompressor({
         <div className="section">
           <div className="section-label">{t.selectImages}</div>
           <div className="row">
-            <button className="btn btn-with-icon" onClick={handleSelectImageFolder} disabled={imageRunning}>
-              <IconFolder /> {t.selectImageFolder}
-            </button>
             <button className="btn btn-with-icon" onClick={handleSelectImageFiles} disabled={imageRunning}>
               <IconImage /> {t.selectImages}
             </button>
@@ -1695,7 +1697,7 @@ function PdfCompressor({
 
   const resolvePdfOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
     if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
-    if (outputSettings.mode === 'always-ask') return pickFolder();
+    if (outputSettings.mode === 'always-ask') return joinPath(dirName(sourcePath), 'comprimidos');
     return joinPath(dirName(sourcePath), 'comprimidos');
   }, [outputSettings]);
 
@@ -1870,9 +1872,6 @@ function PdfCompressor({
         <div className="section">
           <div className="section-label">{t.selectPdfs}</div>
           <div className="row">
-            <button className="btn btn-with-icon" onClick={handleSelectPdfFolder} disabled={pdfRunning}>
-              <IconFolder /> {t.selectPdfFolder}
-            </button>
             <button className="btn btn-with-icon" onClick={handleSelectPdfFiles} disabled={pdfRunning}>
               <IconDocument /> {t.selectPdfs}
             </button>
@@ -1998,7 +1997,7 @@ function AudioCompressor({
 
   const resolveAudioOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
     if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
-    if (outputSettings.mode === 'always-ask') return pickFolder();
+    if (outputSettings.mode === 'always-ask') return joinPath(dirName(sourcePath), 'comprimidos');
     return joinPath(dirName(sourcePath), 'comprimidos');
   }, [outputSettings]);
 
@@ -2224,14 +2223,9 @@ function AudioCompressor({
           </div>
           <div className="row">
             {audioSubMode === 'compress' ? (
-              <>
-                <button className="btn btn-with-icon" onClick={handleSelectAudioFolder} disabled={audioRunning}>
-                  <IconFolder /> {t.selectAudioFolder}
-                </button>
-                <button className="btn btn-with-icon" onClick={handleSelectAudioFiles} disabled={audioRunning}>
-                  <IconMusic /> {t.selectAudio}
-                </button>
-              </>
+              <button className="btn btn-with-icon" onClick={handleSelectAudioFiles} disabled={audioRunning}>
+                <IconMusic /> {t.selectAudio}
+              </button>
             ) : (
               <button className="btn btn-with-icon" onClick={handleSelectVideoFiles} disabled={audioRunning}>
                 <IconVideoLarge /> {t.extractAudio}
@@ -2721,7 +2715,7 @@ function FormatConverter({
 
   const resolveConvertOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
     if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
-    if (outputSettings.mode === 'always-ask') return pickFolder();
+    if (outputSettings.mode === 'always-ask') return joinPath(dirName(sourcePath), 'comprimidos');
     return joinPath(dirName(sourcePath), 'convertidos');
   }, [outputSettings]);
 
@@ -2886,7 +2880,7 @@ function FormatConverter({
           <div className="section-label">{t.selectFilesToConvert}</div>
           <div className="row">
             <button className="btn btn-with-icon" onClick={handleSelectFiles} disabled={convertRunning}>
-              <IconFolder /> {t.selectFilesToConvert}
+              <IconConvert /> {t.selectFilesToConvert}
             </button>
             {convertJobs.length > 0 && !convertRunning && (
               <button className="btn" onClick={handleClearConvert}>

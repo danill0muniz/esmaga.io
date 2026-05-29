@@ -1,88 +1,89 @@
-# Video Compressor
+# esmaga.io
 
-App de desktop (Windows e Mac) para comprimir vídeos mantendo qualidade, pronto para
-hospedar online. Uso interno — sem assinatura de código.
+Comprima vídeos, imagens, PDFs e áudios sem perder qualidade. Rápido, leve e gratuito.
 
-## O que ele faz
+**Mac, Windows e Linux** · [esmaga.io](https://esmaga.io)
 
-1. Você seleciona uma **pasta** (varre todos os vídeos dentro) ou **vídeos avulsos**.
-2. Cria automaticamente uma subpasta `comprimidos/` para os arquivos de saída (os
-   originais nunca são tocados).
-3. Opções de **formato** (MP4 H.264 / MP4 H.265), **qualidade** (alta/média/baixa) e
-   **resolução** (original / 1080p / 720p).
-4. Fila com **barra de progresso por vídeo** em tempo real e resumo de quanto reduziu.
+## O que faz
 
-O ffmpeg vem **embutido** no app (via `ffmpeg-static`), então quem usa não precisa
-instalar nada.
+- **Vídeos** — MP4, MOV, MKV, AVI, WebM, WMV, FLV. Aceleração de hardware (VideoToolbox, NVENC).
+- **Imagens** — JPG, PNG, WebP, BMP, TIFF, GIF. Qualidade configurável.
+- **PDFs** — 4 níveis de compressão via Ghostscript (Tela, E-book, Impressão, Pré-impressão).
+- **Áudios** — MP3, WAV, FLAC, AAC, OGG, M4A, WMA. Bitrate configurável.
+- **Extrair áudio de vídeo** — extrai a trilha sonora de qualquer vídeo.
+- **Converter formatos** — converte entre formatos instantaneamente (MP4↔MKV↔WebM, PNG↔WebP↔JPG, MP3↔AAC↔FLAC...).
 
----
+## Features
+
+- Drag & drop de arquivos e pastas
+- Compressão paralela (1-4x simultâneo)
+- Thumbnails/preview na fila
+- Reordenação da fila por drag
+- Monitor de CPU em tempo real
+- Som de feedback ao concluir
+- Notificações push ao finalizar
+- Verificação de espaço em disco
+- Preservação de metadados
+- Decodificação por hardware (VideoToolbox, CUDA, VAAPI)
+- Áudio copy quando compatível (evita re-encoding)
+- Corte básico de vídeo (trim início/fim)
+- Opção remover áudio
+- Modo econômico (detecta hardware e limita uso de CPU/RAM)
+- Tema claro/escuro
+- Interface em Português e English (detecta idioma do SO)
+- Dashboard de estatísticas
+- Histórico de compressões
+- System tray com progresso
+- Auto-updater via GitHub Releases
+- Single instance (evita abrir duplicado)
+- Menu de contexto no Finder (macOS)
+- App assinado e notarizado pela Apple
+
+## Stack
+
+- **Frontend:** React + TypeScript + Vite
+- **Backend:** Rust (Tauri v2)
+- **Vídeo/Áudio:** FFmpeg (sidecar embutido)
+- **Imagens:** image crate (Rust nativo)
+- **PDF:** Ghostscript
+- **CI/CD:** GitHub Actions (Mac ARM/Intel, Windows, Linux)
 
 ## Rodar em desenvolvimento
 
-Pré-requisito: Node.js 18+ instalado.
-
 ```bash
-npm install      # baixa deps + o binário do ffmpeg automaticamente
-npm run dev      # abre o app em modo dev
+npm install
+npm run dev
 ```
 
-> Se o `npm install` falhar no download do ffmpeg por rede/proxy, rode de novo —
-> o download é a única etapa que exige internet.
+Pré-requisitos: Node.js 18+, Rust, FFmpeg (`brew install ffmpeg`), Ghostscript (`brew install ghostscript`).
+
+## Gerar build
+
+### Mac (assinado + notarizado)
+
+```bash
+APPLE_SIGNING_IDENTITY="Developer ID Application: ..." \
+APPLE_ID="seu@email.com" \
+APPLE_PASSWORD="app-specific-password" \
+APPLE_TEAM_ID="TEAMID" \
+npm run build
+```
+
+### Via CI/CD
+
+Push para `main` dispara build automático. Tags `v*` criam Release no GitHub.
+
+## Downloads
+
+- [Mac (Apple Silicon)](https://github.com/danill0muniz/esmaga.io/releases/latest)
+- [Mac (Intel)](https://github.com/danill0muniz/esmaga.io/releases/latest)
+- [Windows (.exe)](https://github.com/danill0muniz/esmaga.io/releases/latest)
+- [Linux (.deb / .AppImage)](https://github.com/danill0muniz/esmaga.io/releases/latest)
+
+## Licença
+
+MIT
 
 ---
 
-## Gerar o instalador
-
-### Mac (.dmg)
-
-```bash
-npm run build:mac
-```
-
-Saída em `release/`. Como não há assinatura de código, na primeira vez o Mac vai
-bloquear: clique com o **botão direito → Abrir**, ou vá em
-**Ajustes → Privacidade e Segurança → Abrir Mesmo Assim**.
-
-> Dica: gere na própria arquitetura do Mac alvo. Em Mac com chip Apple (M1/M2/M3) o
-> build sai ARM; em Mac Intel, sai x64.
-
-### Windows (.exe / instalador NSIS)
-
-```bash
-npm run build:win
-```
-
-Saída em `release/`. O SmartScreen pode avisar "app não reconhecido" — clique em
-**Mais informações → Executar assim mesmo**.
-
-> O build de Windows precisa rodar **no Windows** (ou num CI com runner Windows).
-> O build de Mac precisa rodar **no Mac**. Não dá para cross-compilar os dois de uma
-> máquina só sem ferramentas extras.
-
----
-
-## Como ajustar a compressão
-
-A lógica fica em `src/main/main.ts`, função `crfForQuality` e `buildArgs`:
-
-- **CRF**: menor = mais qualidade e arquivo maior. Já calibrado por formato.
-- **Preset**: está em `medium`. Troque para `slow` (menor arquivo, mais lento) ou
-  `fast` (mais rápido) na função `buildArgs`.
-- **Áudio**: AAC 128k, suficiente para fala. Suba para 192k se precisar.
-
----
-
-## Estrutura
-
-```
-src/
-  main/        processo Electron (ffmpeg, fila, IPC)
-    main.ts
-    preload.ts
-  renderer/    interface React
-    App.tsx
-    main.tsx
-    index.css
-  shared/
-    types.ts   tipos compartilhados main <-> renderer
-```
+A IA trabalhou duro. O Danillo tomou café e deu ideias.

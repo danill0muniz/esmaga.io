@@ -11,5 +11,10 @@ src-tauri/gen/schemas
 .env
 CLAUDE.md
 icon-novo.png
+*.dmg
+*.tar.gz
+*.sig
+comprimidos/
+build/
 .DS_Store
 *.cer
