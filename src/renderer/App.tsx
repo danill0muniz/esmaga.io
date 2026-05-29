@@ -556,6 +556,7 @@ export default function App() {
         ? `${done} ${t.videosCompressedErr} ${errors} ${t.withError}`
         : `${done} ${t.videosCompressedOk}`;
       notifyUser(t.compressionDone, body);
+      invoke('play_completion_sound').catch(() => {});
 
       const history = loadHistory();
       const now = new Date().toISOString();
@@ -1396,6 +1397,7 @@ function ImageCompressor({
         ? `${done} ${lang === 'pt' ? 'imagem(ns) comprimida(s),' : 'image(s) compressed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
         : `${done} ${lang === 'pt' ? 'imagem(ns) comprimida(s) com sucesso!' : 'image(s) compressed successfully!'}`;
       notifyUser(t.compressionDone, body);
+      invoke('play_completion_sound').catch(() => {});
     }
   }, [imageJobs, imageRunning, t, lang, notifyUser]);
 
@@ -1713,6 +1715,7 @@ function PdfCompressor({
         ? `${done} PDF(s) ${lang === 'pt' ? 'comprimido(s),' : 'compressed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
         : `${done} PDF(s) ${lang === 'pt' ? 'comprimido(s) com sucesso!' : 'compressed successfully!'}`;
       notifyUser(t.compressionDone, body);
+      invoke('play_completion_sound').catch(() => {});
     }
   }, [pdfJobs, pdfRunning, t, lang, notifyUser]);
 
@@ -2022,6 +2025,7 @@ function AudioCompressor({
         ? `${done} ${lang === 'pt' ? 'áudio(s) processado(s),' : 'audio file(s) processed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
         : `${done} ${lang === 'pt' ? 'áudio(s) processado(s) com sucesso!' : 'audio file(s) processed successfully!'}`;
       notifyUser(t.compressionDone, body);
+      invoke('play_completion_sound').catch(() => {});
     }
   }, [audioJobs, audioRunning, t, lang, notifyUser]);
 

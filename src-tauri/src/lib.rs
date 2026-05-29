@@ -913,6 +913,28 @@ fn image_thumbnail(file_path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn play_completion_sound() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("afplay")
+            .arg("/System/Library/Sounds/Glass.aiff")
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("powershell")
+            .args(["-c", "[System.Media.SystemSounds]::Exclamation.Play()"])
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("paplay")
+            .arg("/usr/share/sounds/freedesktop/stereo/complete.oga")
+            .spawn();
+    }
+}
+
+#[tauri::command]
 fn get_cpu_usage() -> f32 {
     use sysinfo::System;
     let mut sys = System::new();
@@ -1302,6 +1324,7 @@ pub fn run() {
             cancel_all,
             update_tray_menu,
             get_cpu_usage,
+            play_completion_sound,
             scan_images,
             compress_images,
             image_thumbnail,

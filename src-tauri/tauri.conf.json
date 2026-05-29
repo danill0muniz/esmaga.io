@@ -27,10 +27,7 @@
     },
     "windows": {
       "nsis": {
-        "installMode": "both",
-        "installerIcon": "icons/icon.ico",
-        "headerImage": "icons/icon.png",
-        "customNSISScript": "nsis/installer-hooks.nsh"
+        "installMode": "both"
       }
     },
     "linux": {

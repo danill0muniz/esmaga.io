@@ -105,7 +105,7 @@ cat > "$WORKFLOW_PATH/Contents/document.wflow" << 'WFLOW'
                 <key>ActionParameters</key>
                 <dict>
                     <key>COMMAND_STRING</key>
-                    <string>open -a "Esmaga.io" "$@"</string>
+                    <string>if [ -d "/Applications/Esmaga.io.app" ]; then open -a "/Applications/Esmaga.io.app" "$@"; else open -b "digital.ae.videocompressor" "$@"; fi</string>
                     <key>CheckedForUserDefaultShell</key>
                     <true/>
                     <key>inputMethod</key>
