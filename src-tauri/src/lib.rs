@@ -1187,6 +1187,110 @@ async fn extract_audio_from_video(app: AppHandle, jobs: Vec<ExtractAudioJob>) ->
     Ok(())
 }
 
+// ---------- Tipos de conversão ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub input_size: u64,
+    pub output_format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertDoneEvent {
+    pub job_id: String,
+    pub output_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertErrorEvent {
+    pub job_id: String,
+    pub message: String,
+}
+
+#[tauri::command]
+async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), String> {
+    let shell = app.shell();
+
+    for job in &jobs {
+        if let Some(parent) = Path::new(&job.output_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let input_ext = Path::new(&job.input_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+
+        let is_image_input = IMAGE_EXTENSIONS.iter().any(|e| e.trim_start_matches('.') == input_ext);
+
+        let result = if is_image_input {
+            // Conversão de imagem usando crate image
+            match image::open(&job.input_path) {
+                Ok(img) => {
+                    match img.save(&job.output_path) {
+                        Ok(_) => Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0)),
+                        Err(e) => Err(format!("Erro ao salvar: {}", e)),
+                    }
+                }
+                Err(e) => Err(format!("Erro ao abrir: {}", e)),
+            }
+        } else {
+            // Conversão de vídeo/áudio usando ffmpeg com -c copy (sem re-encoding = instantâneo)
+            let is_audio_only = AUDIO_EXTENSIONS.iter().any(|e| e.trim_start_matches('.') == input_ext);
+            let args = if is_audio_only {
+                vec!["-y".to_string(), "-i".to_string(), job.input_path.clone(), job.output_path.clone()]
+            } else {
+                vec!["-y".to_string(), "-i".to_string(), job.input_path.clone(),
+                     "-c".to_string(), "copy".to_string(),
+                     "-movflags".to_string(), "+faststart".to_string(),
+                     job.output_path.clone()]
+            };
+
+            let (mut rx, _child) = shell.sidecar("ffmpeg").unwrap()
+                .args(&args)
+                .spawn()
+                .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
+
+            let mut exited_ok = false;
+            while let Some(event) = rx.recv().await {
+                if let CommandEvent::Terminated(payload) = event {
+                    exited_ok = payload.code == Some(0);
+                }
+            }
+
+            if exited_ok {
+                Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
+            } else {
+                Err("ffmpeg saiu com código de erro".to_string())
+            }
+        };
+
+        match result {
+            Ok(output_size) => {
+                let _ = app.emit("convert-done", ConvertDoneEvent {
+                    job_id: job.id.clone(),
+                    output_size,
+                });
+            }
+            Err(msg) => {
+                let _ = app.emit("convert-error", ConvertErrorEvent {
+                    job_id: job.id.clone(),
+                    message: msg,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---------- Detecção de HW encoders ----------
 
 async fn detect_hw_encoders(app: &AppHandle) -> Vec<String> {
@@ -1333,6 +1437,7 @@ pub fn run() {
             scan_audio,
             compress_audio,
             extract_audio_from_video,
+            convert_files,
         ])
         .run(tauri::generate_context!())
         .expect("Erro ao iniciar o app");

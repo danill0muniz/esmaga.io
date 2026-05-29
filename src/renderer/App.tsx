@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { detectLang, saveLang, getTranslations, LangContext, type Lang } from './i18n';
 import { useT } from './i18n';
 
-type AppMode = 'home' | 'video' | 'image' | 'pdf' | 'audio';
+type AppMode = 'home' | 'video' | 'image' | 'pdf' | 'audio' | 'convert';
 type VideoFormat = 'h264' | 'h265';
 type Quality = 'alta' | 'media' | 'baixa';
 type Resolution = 'original' | '1080p' | '720p';
@@ -188,6 +188,27 @@ function IconHistory() {
   );
 }
 
+function IconStats() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  );
+}
+
+function IconConvert() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    </svg>
+  );
+}
+
 // ---------- Helpers ----------
 
 function loadOutputSettings(): OutputSettings {
@@ -357,7 +378,7 @@ export default function App() {
   const [jobs, setJobs] = useState<VideoJob[]>([]);
   const [outputDir, setOutputDir] = useState<string>('');
   const [running, setRunning] = useState(false);
-  const [view, setView] = useState<'main' | 'settings' | 'history'>('main');
+  const [view, setView] = useState<'main' | 'settings' | 'history' | 'stats'>('main');
   const [outputSettings, setOutputSettingsState] = useState<OutputSettings>(loadOutputSettings);
   const [notificationsEnabled, setNotificationsEnabled] = useState(() => {
     try { return localStorage.getItem('notificationsEnabled') !== 'false'; } catch { return true; }
@@ -820,6 +841,13 @@ export default function App() {
             <IconHistory />
           </button>
           <button
+            className="btn-header-action"
+            onClick={() => setView('stats')}
+            title={t.stats}
+          >
+            <IconStats />
+          </button>
+          <button
             className="btn-settings"
             onClick={() => setView('settings')}
             title={t.settings}
@@ -850,6 +878,8 @@ export default function App() {
         />
       ) : view === 'history' ? (
         <HistoryView onBack={() => setView('main')} />
+      ) : view === 'stats' ? (
+        <StatsView onBack={() => setView('main')} />
       ) : mode === 'home' ? (
       <>
       {renderHeader(false)}
@@ -868,7 +898,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.5.0</span>
+            <span className="credits-version">v1.6.0</span>
           )}
         </div>
       </div>
@@ -896,7 +926,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.5.0</span>
+            <span className="credits-version">v1.6.0</span>
           )}
         </div>
       </div>
@@ -924,7 +954,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.5.0</span>
+            <span className="credits-version">v1.6.0</span>
           )}
         </div>
       </div>
@@ -952,7 +982,34 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.5.0</span>
+            <span className="credits-version">v1.6.0</span>
+          )}
+        </div>
+      </div>
+      </>
+      ) : mode === 'convert' ? (
+      <>
+      {renderHeader(true)}
+      <FormatConverter
+        isDragging={isDragging}
+        outputSettings={outputSettings}
+        notifyUser={notifyUser}
+      />
+      <div className="credits">
+        <div className="credits-left">
+          <IconRobot /> {t.credits}
+        </div>
+        <div className="credits-right">
+          {updateAvailable ? (
+            <button
+              className="credits-update"
+              onClick={handleUpdate}
+              disabled={updating}
+            >
+              {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
+            </button>
+          ) : (
+            <span className="credits-version">v1.6.0</span>
           )}
         </div>
       </div>
@@ -1165,7 +1222,7 @@ export default function App() {
               {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
             </button>
           ) : (
-            <span className="credits-version">v1.5.0</span>
+            <span className="credits-version">v1.6.0</span>
           )}
         </div>
       </div>
@@ -1258,6 +1315,11 @@ function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void })
           <div className="mode-card-icon"><IconMusic /></div>
           <span className="mode-card-title">{t.audioMode}</span>
           <span className="mode-card-hint">{t.audioModeHint}</span>
+        </button>
+        <button className="mode-card" onClick={() => onSelectMode('convert')}>
+          <div className="mode-card-icon"><IconConvert /></div>
+          <span className="mode-card-title">{t.convertMode}</span>
+          <span className="mode-card-hint">{t.convertModeHint}</span>
         </button>
       </div>
     </div>
@@ -2442,6 +2504,428 @@ function HistoryView({ onBack }: { onBack: () => void }) {
             </div>
           </>
         )}
+      </div>
+    </>
+  );
+}
+
+function StatsView({ onBack }: { onBack: () => void }) {
+  const { t, lang } = useT();
+  const history = useMemo(() => loadHistory(), []);
+
+  const stats = useMemo(() => {
+    const totalFiles = history.length;
+    const totalOriginal = history.reduce((s, h) => s + h.inputSize, 0);
+    const totalCompressed = history.reduce((s, h) => s + h.outputSize, 0);
+    const totalSaved = totalOriginal - totalCompressed;
+    const avgReduction = totalFiles > 0
+      ? Math.round(history.reduce((s, h) => s + h.reduction, 0) / totalFiles)
+      : 0;
+    return { totalFiles, totalOriginal, totalCompressed, totalSaved, avgReduction };
+  }, [history]);
+
+  const chartData = useMemo(() => {
+    const days: Record<string, number> = {};
+    const now = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      days[key] = 0;
+    }
+    for (const h of history) {
+      const key = h.date.slice(0, 10);
+      if (key in days) {
+        days[key]++;
+      }
+    }
+    const maxCount = Math.max(...Object.values(days), 1);
+    return Object.entries(days).map(([date, count]) => ({
+      label: new Date(date + 'T12:00:00').toLocaleDateString(lang === 'pt' ? 'pt-BR' : 'en-US', { day: '2-digit', month: '2-digit' }),
+      count,
+      pct: (count / maxCount) * 100,
+    }));
+  }, [history, lang]);
+
+  return (
+    <>
+      <div className="header">
+        <div className="header-row">
+          <button className="btn-back" onClick={onBack}>
+            <IconBack /> {t.back}
+          </button>
+          <h1>{t.stats}</h1>
+          <div style={{ width: 80 }} />
+        </div>
+      </div>
+      <div className="content">
+        {history.length === 0 ? (
+          <div className="empty">{t.noStatsYet}</div>
+        ) : (
+          <>
+            <div className="stats-cards">
+              <div className="stat-card">
+                <div className="stat-card-value">{stats.totalFiles}</div>
+                <div className="stat-card-label">{t.totalFilesCompressed}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-value green">{formatBytes(stats.totalSaved)}</div>
+                <div className="stat-card-label">{t.totalSpaceSaved}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-value green">{stats.avgReduction}%</div>
+                <div className="stat-card-label">{t.avgReduction}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-card-value" style={{ fontSize: 18 }}>
+                  {formatBytes(stats.totalOriginal)} → {formatBytes(stats.totalCompressed)}
+                </div>
+                <div className="stat-card-label">{t.totalOriginalSize} → {t.totalCompressedSize}</div>
+              </div>
+            </div>
+            <div className="stats-chart">
+              <div className="stats-chart-title">{t.last30Days.split(' ')[0]} 7 {lang === 'pt' ? 'dias' : 'days'}</div>
+              <div className="chart-bars">
+                {chartData.map((d, i) => (
+                  <div className="chart-bar-wrapper" key={i}>
+                    <span className="chart-bar-count">{d.count > 0 ? d.count : ''}</span>
+                    <div className="chart-bar" style={{ height: `${Math.max(d.pct, 2)}%` }} />
+                    <span className="chart-bar-label">{d.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+type ConvertJobStatus = 'pendente' | 'convertendo' | 'convertido' | 'erro';
+
+interface ConvertJobItem {
+  id: string;
+  inputPath: string;
+  fileName: string;
+  outputPath: string;
+  inputSize: number;
+  outputSize: number;
+  outputFormat: string;
+  status: ConvertJobStatus;
+  errorMessage?: string;
+}
+
+const ALL_VIDEO_FORMATS = ['mp4', 'mkv', 'webm', 'mov', 'avi', 'wmv', 'flv', 'm4v', 'ts'];
+const ALL_IMAGE_FORMATS = ['jpg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'avif', 'ico'];
+const ALL_AUDIO_FORMATS = ['mp3', 'aac', 'ogg', 'flac', 'wav', 'm4a', 'wma', 'opus'];
+
+function detectFileType(ext: string): 'video' | 'image' | 'audio' | 'unknown' {
+  if (VIDEO_EXTS.includes(ext)) return 'video';
+  if (IMAGE_EXTS.includes(ext)) return 'image';
+  if (AUDIO_EXTS.includes(ext)) return 'audio';
+  return 'unknown';
+}
+
+function getFormatsForType(type: 'video' | 'image' | 'audio' | 'unknown'): string[] {
+  if (type === 'video') return ALL_VIDEO_FORMATS;
+  if (type === 'image') return ALL_IMAGE_FORMATS;
+  if (type === 'audio') return ALL_AUDIO_FORMATS;
+  return [...ALL_VIDEO_FORMATS, ...ALL_IMAGE_FORMATS, ...ALL_AUDIO_FORMATS];
+}
+
+async function pickConvertFiles(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: 'All supported',
+      extensions: [...VIDEO_EXTS, ...IMAGE_EXTS, ...AUDIO_EXTS],
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
+function FormatConverter({
+  isDragging,
+  outputSettings,
+  notifyUser,
+}: {
+  isDragging: boolean;
+  outputSettings: OutputSettings;
+  notifyUser: (title: string, body: string) => Promise<void>;
+}) {
+  const { t, lang } = useT();
+  const [convertJobs, setConvertJobs] = useState<ConvertJobItem[]>([]);
+  const [convertOutputDir, setConvertOutputDir] = useState('');
+  const [outputFormat, setOutputFormat] = useState('mp4');
+  const [convertRunning, setConvertRunning] = useState(false);
+
+  const detectedType = useMemo((): 'video' | 'image' | 'audio' | 'unknown' => {
+    if (convertJobs.length === 0) return 'unknown';
+    const ext = extName(convertJobs[0].inputPath).toLowerCase();
+    return detectFileType(ext);
+  }, [convertJobs]);
+
+  const availableFormats = useMemo(() => getFormatsForType(detectedType), [detectedType]);
+
+  // Atualizar formato padrão ao mudar tipo detectado
+  useEffect(() => {
+    if (availableFormats.length > 0 && !availableFormats.includes(outputFormat)) {
+      setOutputFormat(availableFormats[0]);
+    }
+  }, [availableFormats]);
+
+  const resolveConvertOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
+    if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
+    if (outputSettings.mode === 'always-ask') return pickFolder();
+    return joinPath(dirName(sourcePath), 'convertidos');
+  }, [outputSettings]);
+
+  const addConvertJobs = useCallback(async (paths: string[], outDir: string) => {
+    const newJobs: ConvertJobItem[] = [];
+    for (const p of paths) {
+      const fileName = baseName(p);
+      const size = await invoke<number>('get_file_size', { filePath: p });
+      const outFileName = changeExt(fileName, outputFormat);
+      newJobs.push({
+        id: nextId(),
+        inputPath: p,
+        fileName,
+        outputPath: joinPath(outDir, outFileName),
+        inputSize: size,
+        outputSize: 0,
+        outputFormat,
+        status: 'pendente',
+      });
+    }
+    setConvertJobs((prev) => [...prev, ...newJobs]);
+  }, [outputFormat]);
+
+  const handleSelectFiles = useCallback(async () => {
+    const files = await pickConvertFiles();
+    if (files.length === 0) return;
+    const outDir = await resolveConvertOutputDir(files[0]);
+    if (!outDir) return;
+    setConvertOutputDir(outDir);
+    await addConvertJobs(files, outDir);
+  }, [addConvertJobs, resolveConvertOutputDir]);
+
+  // Drag & drop
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
+      const paths = event.payload.paths || [];
+      const allExts = [...VIDEO_EXTS, ...IMAGE_EXTS, ...AUDIO_EXTS];
+      const validPaths = paths.filter((p) => allExts.includes(extName(p)));
+      if (validPaths.length === 0) return;
+      const outDir = await resolveConvertOutputDir(validPaths[0]);
+      if (!outDir) return;
+      setConvertOutputDir(outDir);
+      await addConvertJobs(validPaths, outDir);
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [addConvertJobs, resolveConvertOutputDir]);
+
+  // Eventos de conclusão/erro
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    listen<{ jobId: string; outputSize: number }>('convert-done', (event) => {
+      const { jobId, outputSize } = event.payload;
+      setConvertJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'convertido' as ConvertJobStatus, outputSize } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    listen<{ jobId: string; message: string }>('convert-error', (event) => {
+      const { jobId, message } = event.payload;
+      setConvertJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'erro' as ConvertJobStatus, errorMessage: message } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    return () => { unlisteners.forEach((fn) => fn()); };
+  }, []);
+
+  // Notificar ao concluir
+  useEffect(() => {
+    if (!convertRunning) return;
+    const allDone = convertJobs.every((j) => j.status === 'convertido' || j.status === 'erro');
+    if (convertJobs.length > 0 && allDone) {
+      setConvertRunning(false);
+      const done = convertJobs.filter((j) => j.status === 'convertido').length;
+      const errors = convertJobs.filter((j) => j.status === 'erro').length;
+      const body = errors > 0
+        ? `${done} ${t.converted}, ${errors} ${t.error}`
+        : `${done} ${t.converted}`;
+      notifyUser(t.convertFiles, body);
+      invoke('play_completion_sound').catch(() => {});
+    }
+  }, [convertJobs, convertRunning, t, notifyUser]);
+
+  const handleConvert = useCallback(async () => {
+    const pending = convertJobs.filter((j) => j.status === 'pendente');
+    if (pending.length === 0) return;
+    setConvertRunning(true);
+    // Atualizar status para "convertendo"
+    setConvertJobs((prev) =>
+      prev.map((j) => j.status === 'pendente' ? { ...j, status: 'convertendo' as ConvertJobStatus } : j)
+    );
+    const jobsToSend = pending.map((j) => ({
+      id: j.id,
+      inputPath: j.inputPath,
+      fileName: j.fileName,
+      outputPath: joinPath(convertOutputDir, changeExt(j.fileName, outputFormat)),
+      inputSize: j.inputSize,
+      outputFormat,
+    }));
+    await invoke('convert_files', { jobs: jobsToSend });
+  }, [convertJobs, convertOutputDir, outputFormat]);
+
+  const handleRemoveConvert = useCallback((id: string) => {
+    setConvertJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const handleClearConvert = useCallback(() => {
+    setConvertJobs([]);
+    setConvertOutputDir('');
+  }, []);
+
+  const handleOpenConvertOutput = useCallback(async () => {
+    if (convertOutputDir) await invoke('open_folder', { folderPath: convertOutputDir });
+  }, [convertOutputDir]);
+
+  const convertTotals = useMemo(() => {
+    const done = convertJobs.filter((j) => j.status === 'convertido');
+    const totalIn = done.reduce((s, j) => s + j.inputSize, 0);
+    const totalOut = done.reduce((s, j) => s + j.outputSize, 0);
+    return { totalIn, totalOut, done: done.length };
+  }, [convertJobs]);
+
+  const hasPendingConvert = convertJobs.some((j) => j.status === 'pendente');
+
+  return (
+    <>
+      {isDragging && (
+        <div className="drop-overlay">
+          <div className="drop-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>{t.dropHere}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="content">
+        <div className="section">
+          <div className="section-label">{t.selectFilesToConvert}</div>
+          <div className="row">
+            <button className="btn btn-with-icon" onClick={handleSelectFiles} disabled={convertRunning}>
+              <IconFolder /> {t.selectFilesToConvert}
+            </button>
+            {convertJobs.length > 0 && !convertRunning && (
+              <button className="btn" onClick={handleClearConvert}>
+                {t.clearList}
+              </button>
+            )}
+          </div>
+          <div className="hint" style={{ marginTop: 6 }}>{t.dragHint}</div>
+          {convertOutputDir && (
+            <div className="hint output-dir-row">
+              {t.savingTo} <strong>{convertOutputDir}</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.convertTo}</div>
+          <div className="options">
+            <div className="option-group">
+              <div className="pill-row">
+                {availableFormats.map((fmt) => (
+                  <Pill key={fmt} active={outputFormat === fmt} onClick={() => setOutputFormat(fmt)}>
+                    .{fmt.toUpperCase()}
+                  </Pill>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.queue} ({convertJobs.length})</div>
+          {convertJobs.length === 0 ? (
+            <div className="empty">{t.emptyConvertQueue}</div>
+          ) : (
+            <div className="queue">
+              {convertJobs.map((job) => (
+                <div className="job" key={job.id}>
+                  <div className="job-top">
+                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                    <span className="format-badge">
+                      {extName(job.inputPath).toUpperCase()} → {outputFormat.toUpperCase()}
+                    </span>
+                    <span className={`status-badge status-${job.status === 'convertendo' ? 'processando' : job.status === 'convertido' ? 'concluido' : job.status}`}>
+                      {job.status === 'pendente' ? t.pending
+                        : job.status === 'convertendo' ? t.converting
+                        : job.status === 'convertido' ? t.converted
+                        : t.error}
+                    </span>
+                    {job.status === 'convertido' && job.outputSize > 0 ? (
+                      <span className="job-meta">
+                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                      </span>
+                    ) : (
+                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                    )}
+                    {job.status === 'pendente' && !convertRunning && (
+                      <button className="remove-btn" onClick={() => handleRemoveConvert(job.id)} title={t.remove}>✕</button>
+                    )}
+                  </div>
+                  {job.status === 'erro' && job.errorMessage && (
+                    <div className="job-error">{job.errorMessage}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="footer">
+        <div className="summary">
+          {convertTotals.done > 0 && (
+            <>
+              <strong>{convertTotals.done}</strong> {t.converted}
+              {convertTotals.totalIn > 0 && (
+                <>
+                  {' '}· {formatBytes(convertTotals.totalIn)} → {formatBytes(convertTotals.totalOut)}
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="row">
+          {convertTotals.done > 0 && convertOutputDir && (
+            <button className="btn btn-with-icon" onClick={handleOpenConvertOutput}>
+              <IconExternalLink /> {t.openFolder}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={handleConvert}
+            disabled={!hasPendingConvert || convertRunning}
+          >
+            {t.convertFiles} {convertJobs.filter((j) => j.status === 'pendente').length || ''}
+          </button>
+        </div>
       </div>
     </>
   );
