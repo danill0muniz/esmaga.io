@@ -678,7 +678,11 @@ export default function App() {
         thumbnail,
       });
     }
-    setJobs((prev) => [...prev, ...newJobs]);
+    setJobs((prev) => {
+      const existingPaths = new Set(prev.map(j => j.inputPath));
+      const unique = newJobs.filter(j => !existingPaths.has(j.inputPath));
+      return [...prev, ...unique];
+    });
   }, [container]);
 
   const handleSelectFolder = useCallback(async () => {
@@ -798,9 +802,10 @@ export default function App() {
   }, []);
 
   const handleClear = useCallback(() => {
+    if (!confirm(t.confirmClear)) return;
     setJobs([]);
     setOutputDir('');
-  }, []);
+  }, [t]);
 
   const handleOpenOutput = useCallback(async () => {
     if (outputDir) await invoke('open_folder', { folderPath: outputDir });
@@ -1387,7 +1392,11 @@ function ImageCompressor({
         thumbnail,
       });
     }
-    setImageJobs((prev) => [...prev, ...newJobs]);
+    setImageJobs((prev) => {
+      const existingPaths = new Set(prev.map(j => j.inputPath));
+      const unique = newJobs.filter(j => !existingPaths.has(j.inputPath));
+      return [...prev, ...unique];
+    });
   }, [imageFormat, imageQuality]);
 
   const handleSelectImageFolder = useCallback(async () => {
@@ -1506,9 +1515,10 @@ function ImageCompressor({
   }, []);
 
   const handleClearImages = useCallback(() => {
+    if (!confirm(t.confirmClear)) return;
     setImageJobs([]);
     setImageOutputDir('');
-  }, []);
+  }, [t]);
 
   const handleOpenImageOutput = useCallback(async () => {
     if (imageOutputDir) await invoke('open_folder', { folderPath: imageOutputDir });
@@ -1705,7 +1715,11 @@ function PdfCompressor({
         status: 'pendente',
       });
     }
-    setPdfJobs((prev) => [...prev, ...newJobs]);
+    setPdfJobs((prev) => {
+      const existingPaths = new Set(prev.map(j => j.inputPath));
+      const unique = newJobs.filter(j => !existingPaths.has(j.inputPath));
+      return [...prev, ...unique];
+    });
   }, [pdfQuality]);
 
   const handleSelectPdfFolder = useCallback(async () => {
@@ -1818,9 +1832,10 @@ function PdfCompressor({
   }, []);
 
   const handleClearPdfs = useCallback(() => {
+    if (!confirm(t.confirmClear)) return;
     setPdfJobs([]);
     setPdfOutputDir('');
-  }, []);
+  }, [t]);
 
   const handleOpenPdfOutput = useCallback(async () => {
     if (pdfOutputDir) await invoke('open_folder', { folderPath: pdfOutputDir });
@@ -2005,7 +2020,11 @@ function AudioCompressor({
         status: 'pendente',
       });
     }
-    setAudioJobs((prev) => [...prev, ...newJobs]);
+    setAudioJobs((prev) => {
+      const existingPaths = new Set(prev.map(j => j.inputPath));
+      const unique = newJobs.filter(j => !existingPaths.has(j.inputPath));
+      return [...prev, ...unique];
+    });
   }, [audioFormat, audioBitrate]);
 
   const handleSelectAudioFolder = useCallback(async () => {
@@ -2142,9 +2161,10 @@ function AudioCompressor({
   }, []);
 
   const handleClearAudio = useCallback(() => {
+    if (!confirm(t.confirmClear)) return;
     setAudioJobs([]);
     setAudioOutputDir('');
-  }, []);
+  }, [t]);
 
   const handleOpenAudioOutput = useCallback(async () => {
     if (audioOutputDir) await invoke('open_folder', { folderPath: audioOutputDir });
@@ -2635,6 +2655,7 @@ interface ConvertJobItem {
   outputSize: number;
   outputFormat: string;
   status: ConvertJobStatus;
+  progress: number;
   errorMessage?: string;
 }
 
@@ -2719,9 +2740,14 @@ function FormatConverter({
         outputSize: 0,
         outputFormat,
         status: 'pendente',
+        progress: 0,
       });
     }
-    setConvertJobs((prev) => [...prev, ...newJobs]);
+    setConvertJobs((prev) => {
+      const existingPaths = new Set(prev.map(j => j.inputPath));
+      const unique = newJobs.filter(j => !existingPaths.has(j.inputPath));
+      return [...prev, ...unique];
+    });
   }, [outputFormat]);
 
   const handleSelectFiles = useCallback(async () => {
@@ -2752,11 +2778,20 @@ function FormatConverter({
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
+    listen<{ jobId: string; progress: number }>('convert-progress', (event) => {
+      const { jobId, progress } = event.payload;
+      setConvertJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, progress } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
     listen<{ jobId: string; outputSize: number }>('convert-done', (event) => {
       const { jobId, outputSize } = event.payload;
       setConvertJobs((prev) =>
         prev.map((j) =>
-          j.id === jobId ? { ...j, status: 'convertido' as ConvertJobStatus, outputSize } : j
+          j.id === jobId ? { ...j, status: 'convertido' as ConvertJobStatus, outputSize, progress: 100 } : j
         )
       );
     }).then((fn) => unlisteners.push(fn));
@@ -2813,9 +2848,10 @@ function FormatConverter({
   }, []);
 
   const handleClearConvert = useCallback(() => {
+    if (!confirm(t.confirmClear)) return;
     setConvertJobs([]);
     setConvertOutputDir('');
-  }, []);
+  }, [t]);
 
   const handleOpenConvertOutput = useCallback(async () => {
     if (convertOutputDir) await invoke('open_folder', { folderPath: convertOutputDir });
@@ -2896,7 +2932,7 @@ function FormatConverter({
                     </span>
                     <span className={`status-badge status-${job.status === 'convertendo' ? 'processando' : job.status === 'convertido' ? 'concluido' : job.status}`}>
                       {job.status === 'pendente' ? t.pending
-                        : job.status === 'convertendo' ? t.converting
+                        : job.status === 'convertendo' ? (job.progress > 0 ? `${job.progress}%` : t.converting)
                         : job.status === 'convertido' ? t.converted
                         : t.error}
                     </span>

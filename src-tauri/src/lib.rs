@@ -1259,6 +1259,13 @@ pub struct ConvertErrorEvent {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertProgressEvent {
+    pub job_id: String,
+    pub progress: u32,
+}
+
 #[tauri::command]
 async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), String> {
     let shell = app.shell();
@@ -1324,22 +1331,88 @@ async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), Stri
 
             args.push(job.output_path.clone());
 
-            let (mut rx, _child) = shell.sidecar("ffmpeg").unwrap()
-                .args(&args)
-                .spawn()
-                .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
+            if needs_reencode {
+                // Obter duração do arquivo para calcular progresso
+                let duration = {
+                    let probe_output = shell
+                        .sidecar("ffprobe")
+                        .unwrap()
+                        .args([
+                            "-v", "error",
+                            "-show_entries", "format=duration",
+                            "-of", "default=noprint_wrappers=1:nokey=1",
+                            &job.input_path,
+                        ])
+                        .output()
+                        .await;
+                    match probe_output {
+                        Ok(out) => {
+                            let s = String::from_utf8_lossy(&out.stdout);
+                            s.trim().parse::<f64>().unwrap_or(0.0)
+                        }
+                        Err(_) => 0.0,
+                    }
+                };
 
-            let mut exited_ok = false;
-            while let Some(event) = rx.recv().await {
-                if let CommandEvent::Terminated(payload) = event {
-                    exited_ok = payload.code == Some(0);
+                let (mut rx, _child) = shell.sidecar("ffmpeg").unwrap()
+                    .args(&args)
+                    .spawn()
+                    .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
+
+                let mut stderr_buf = String::new();
+                let mut exited_ok = false;
+
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stderr(data) => {
+                            let line = String::from_utf8_lossy(&data);
+                            stderr_buf.push_str(&line);
+
+                            if let Some(t) = parse_time(&stderr_buf) {
+                                if duration > 0.0 {
+                                    let pct = ((t / duration) * 100.0).min(99.0) as u32;
+                                    let _ = app.emit("convert-progress", ConvertProgressEvent {
+                                        job_id: job.id.clone(),
+                                        progress: pct,
+                                    });
+                                }
+                            }
+
+                            if stderr_buf.len() > 4096 {
+                                stderr_buf = stderr_buf[stderr_buf.len() - 512..].to_string();
+                            }
+                        }
+                        CommandEvent::Terminated(payload) => {
+                            exited_ok = payload.code == Some(0);
+                        }
+                        _ => {}
+                    }
                 }
-            }
 
-            if exited_ok {
-                Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
+                if exited_ok {
+                    Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
+                } else {
+                    Err("ffmpeg saiu com código de erro".to_string())
+                }
             } else {
-                Err("ffmpeg saiu com código de erro".to_string())
+                // -c copy: rápido, sem necessidade de progresso
+                let (mut rx, _child) = shell.sidecar("ffmpeg").unwrap()
+                    .args(&args)
+                    .spawn()
+                    .map_err(|e| format!("Erro ao iniciar ffmpeg: {}", e))?;
+
+                let mut exited_ok = false;
+                while let Some(event) = rx.recv().await {
+                    if let CommandEvent::Terminated(payload) = event {
+                        exited_ok = payload.code == Some(0);
+                    }
+                }
+
+                if exited_ok {
+                    Ok(fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0))
+                } else {
+                    Err("ffmpeg saiu com código de erro".to_string())
+                }
             }
         };
 

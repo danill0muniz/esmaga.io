@@ -168,6 +168,7 @@ const translations = {
     emptyConvertQueue: 'Nenhum arquivo na fila. Selecione ou arraste arquivos para converter.',
     converting: 'convertendo',
     converted: 'convertido',
+    confirmClear: 'Tem certeza que deseja limpar a lista?',
   },
   en: {
     appName: 'Smash!',
@@ -323,6 +324,7 @@ const translations = {
     emptyConvertQueue: 'No files in the queue. Select or drag files to convert.',
     converting: 'converting',
     converted: 'converted',
+    confirmClear: 'Are you sure you want to clear the list?',
   },
 } as const;
 
