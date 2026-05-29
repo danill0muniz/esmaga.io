@@ -95,6 +95,10 @@ const IMAGE_EXTENSIONS: &[&str] = &[
     ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif", ".gif",
 ];
 
+const AUDIO_EXTENSIONS: &[&str] = &[
+    ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma",
+];
+
 // ---------- Tipos de imagem ----------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +123,46 @@ pub struct ImageDoneEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImageErrorEvent {
+    pub job_id: String,
+    pub message: String,
+}
+
+// ---------- Tipos de áudio ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub input_size: u64,
+    pub output_format: String,
+    pub bitrate: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractAudioJob {
+    pub id: String,
+    pub input_path: String,
+    pub file_name: String,
+    pub output_path: String,
+    pub input_size: u64,
+    pub output_format: String,
+    pub bitrate: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDoneEvent {
+    pub job_id: String,
+    pub output_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioErrorEvent {
     pub job_id: String,
     pub message: String,
 }
@@ -951,6 +995,176 @@ fn truncate_name(name: &str, max: usize) -> String {
     }
 }
 
+// ---------- Comandos de áudio ----------
+
+#[tauri::command]
+fn scan_audio(folder_path: String) -> Vec<VideoFile> {
+    let mut audios = Vec::new();
+    let Ok(entries) = fs::read_dir(&folder_path) else {
+        return audios;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{}", e.to_lowercase()))
+            .unwrap_or_default();
+        if !AUDIO_EXTENSIONS.contains(&ext.as_str()) {
+            continue;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        audios.push(VideoFile {
+            path: path.to_string_lossy().to_string(),
+            size,
+        });
+    }
+    audios
+}
+
+#[tauri::command]
+async fn compress_audio(app: AppHandle, jobs: Vec<AudioJob>) -> Result<(), String> {
+    let shell = app.shell();
+
+    for job in &jobs {
+        if let Some(parent) = Path::new(&job.output_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let mut args = vec![
+            "-y".to_string(),
+            "-i".to_string(), job.input_path.clone(),
+        ];
+
+        match job.output_format.as_str() {
+            "mp3" => {
+                args.extend_from_slice(&[
+                    "-c:a".to_string(), "libmp3lame".to_string(),
+                    "-b:a".to_string(), job.bitrate.clone(),
+                ]);
+            }
+            "aac" | "m4a" => {
+                args.extend_from_slice(&[
+                    "-c:a".to_string(), "aac".to_string(),
+                    "-b:a".to_string(), job.bitrate.clone(),
+                ]);
+            }
+            "ogg" => {
+                args.extend_from_slice(&[
+                    "-c:a".to_string(), "libvorbis".to_string(),
+                    "-b:a".to_string(), job.bitrate.clone(),
+                ]);
+            }
+            "flac" => {
+                args.extend_from_slice(&[
+                    "-c:a".to_string(), "flac".to_string(),
+                ]);
+            }
+            "wav" => {
+                args.extend_from_slice(&[
+                    "-c:a".to_string(), "pcm_s16le".to_string(),
+                ]);
+            }
+            _ => {
+                args.extend_from_slice(&[
+                    "-b:a".to_string(), job.bitrate.clone(),
+                ]);
+            }
+        }
+
+        args.push(job.output_path.clone());
+
+        let output = shell.sidecar("ffmpeg").unwrap()
+            .args(&args)
+            .output()
+            .await;
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+                let _ = app.emit("audio-done", AudioDoneEvent {
+                    job_id: job.id.clone(),
+                    output_size: size,
+                });
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let _ = app.emit("audio-error", AudioErrorEvent {
+                    job_id: job.id.clone(),
+                    message: format!("ffmpeg error: {}", stderr.chars().take(200).collect::<String>()),
+                });
+            }
+            Err(e) => {
+                let _ = app.emit("audio-error", AudioErrorEvent {
+                    job_id: job.id.clone(),
+                    message: format!("Erro: {}", e),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn extract_audio_from_video(app: AppHandle, jobs: Vec<ExtractAudioJob>) -> Result<(), String> {
+    let shell = app.shell();
+
+    for job in &jobs {
+        if let Some(parent) = Path::new(&job.output_path).parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let mut args = vec![
+            "-y".to_string(),
+            "-i".to_string(), job.input_path.clone(),
+            "-vn".to_string(),
+        ];
+
+        match job.output_format.as_str() {
+            "mp3" => args.extend_from_slice(&["-c:a".to_string(), "libmp3lame".to_string(), "-b:a".to_string(), job.bitrate.clone()]),
+            "aac" => args.extend_from_slice(&["-c:a".to_string(), "aac".to_string(), "-b:a".to_string(), job.bitrate.clone()]),
+            "flac" => args.extend_from_slice(&["-c:a".to_string(), "flac".to_string()]),
+            "wav" => args.extend_from_slice(&["-c:a".to_string(), "pcm_s16le".to_string()]),
+            "ogg" => args.extend_from_slice(&["-c:a".to_string(), "libvorbis".to_string(), "-b:a".to_string(), job.bitrate.clone()]),
+            _ => args.extend_from_slice(&["-b:a".to_string(), job.bitrate.clone()]),
+        }
+
+        args.push(job.output_path.clone());
+
+        let output = shell.sidecar("ffmpeg").unwrap()
+            .args(&args)
+            .output()
+            .await;
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+                let _ = app.emit("audio-done", AudioDoneEvent {
+                    job_id: job.id.clone(),
+                    output_size: size,
+                });
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let _ = app.emit("audio-error", AudioErrorEvent {
+                    job_id: job.id.clone(),
+                    message: format!("ffmpeg error: {}", stderr.chars().take(200).collect::<String>()),
+                });
+            }
+            Err(e) => {
+                let _ = app.emit("audio-error", AudioErrorEvent {
+                    job_id: job.id.clone(),
+                    message: format!("Erro: {}", e),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---------- Detecção de HW encoders ----------
 
 async fn detect_hw_encoders(app: &AppHandle) -> Vec<String> {
@@ -994,11 +1208,21 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
+            }
+            // Emitir arquivos recebidos via linha de comando
+            let files: Vec<String> = args.iter()
+                .skip(1)
+                .filter(|a| !a.starts_with('-'))
+                .filter(|a| Path::new(a).exists())
+                .cloned()
+                .collect();
+            if !files.is_empty() {
+                let _ = app.emit("open-files", files);
             }
         }))
         .manage(AppState {
@@ -1006,6 +1230,22 @@ pub fn run() {
             cancelled: Arc::new(Mutex::new(false)),
         })
         .setup(|app| {
+            // Emitir arquivos passados como argumentos na abertura
+            let args: Vec<String> = std::env::args().collect();
+            let files: Vec<String> = args.iter()
+                .skip(1)
+                .filter(|a| !a.starts_with('-'))
+                .filter(|a| Path::new(a).exists())
+                .cloned()
+                .collect();
+            if !files.is_empty() {
+                let handle_files = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    let _ = handle_files.emit("open-files", files);
+                });
+            }
+
             // Detectar encoders de hardware
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -1067,6 +1307,9 @@ pub fn run() {
             image_thumbnail,
             scan_pdfs,
             compress_pdfs,
+            scan_audio,
+            compress_audio,
+            extract_audio_from_video,
         ])
         .run(tauri::generate_context!())
         .expect("Erro ao iniciar o app");

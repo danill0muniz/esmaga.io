@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { detectLang, saveLang, getTranslations, LangContext, type Lang } from './i18n';
 import { useT } from './i18n';
 
-type AppMode = 'home' | 'video' | 'image' | 'pdf';
+type AppMode = 'home' | 'video' | 'image' | 'pdf' | 'audio';
 type VideoFormat = 'h264' | 'h265';
 type Quality = 'alta' | 'media' | 'baixa';
 type Resolution = 'original' | '1080p' | '720p';
@@ -78,6 +78,24 @@ interface PdfJob {
   outputSize: number;
   quality: PdfQuality;
   status: PdfJobStatus;
+  errorMessage?: string;
+}
+
+type AudioOutputFormat = 'mp3' | 'aac' | 'ogg' | 'flac' | 'wav';
+type AudioBitrate = '128k' | '192k' | '256k' | '320k';
+type AudioJobStatus = 'pendente' | 'concluido' | 'erro';
+type AudioSubMode = 'compress' | 'extract';
+
+interface AudioJobItem {
+  id: string;
+  inputPath: string;
+  fileName: string;
+  outputPath: string;
+  inputSize: number;
+  outputSize: number;
+  outputFormat: AudioOutputFormat;
+  bitrate: AudioBitrate;
+  status: AudioJobStatus;
   errorMessage?: string;
 }
 
@@ -294,6 +312,32 @@ async function pickPdfFiles(): Promise<string[]> {
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif'];
 const PDF_EXTS = ['pdf'];
+const AUDIO_EXTS = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma'];
+const VIDEO_EXTS = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'wmv', 'flv'];
+
+async function pickAudioFiles(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: 'Audio',
+      extensions: AUDIO_EXTS,
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
+
+async function pickVideoFilesForExtract(): Promise<string[]> {
+  const result = await open({
+    multiple: true,
+    filters: [{
+      name: 'Videos',
+      extensions: VIDEO_EXTS,
+    }],
+  });
+  if (!result) return [];
+  return Array.isArray(result) ? result : [result];
+}
 
 // mapeamento de status para tradução
 function statusText(status: JobStatus, t: ReturnType<typeof getTranslations>): string {
@@ -396,6 +440,23 @@ export default function App() {
     } catch {
       setUpdating(false);
     }
+  }, []);
+
+  // Receber arquivos via linha de comando / menu de contexto
+  useEffect(() => {
+    const unlisten = listen<string[]>('open-files', (event) => {
+      const files = event.payload;
+      if (!files || files.length === 0) return;
+      const ext = extName(files[0]).toLowerCase();
+      const vExts = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'wmv', 'flv'];
+      const iExts = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tiff', 'tif', 'gif'];
+      const aExts = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma'];
+      if (ext === 'pdf') setMode('pdf');
+      else if (iExts.includes(ext)) setMode('image');
+      else if (aExts.includes(ext)) setMode('audio');
+      else if (vExts.includes(ext)) setMode('video');
+    });
+    return () => { unlisten.then((fn) => fn()); };
   }, []);
 
   // Drag & drop
@@ -867,6 +928,34 @@ export default function App() {
         </div>
       </div>
       </>
+      ) : mode === 'audio' ? (
+      <>
+      {renderHeader(true)}
+      <AudioCompressor
+        isDragging={isDragging}
+        outputSettings={outputSettings}
+        notificationsEnabled={notificationsEnabled}
+        notifyUser={notifyUser}
+      />
+      <div className="credits">
+        <div className="credits-left">
+          <IconRobot /> {t.credits}
+        </div>
+        <div className="credits-right">
+          {updateAvailable ? (
+            <button
+              className="credits-update"
+              onClick={handleUpdate}
+              disabled={updating}
+            >
+              {updating ? t.updatingText : `v${updateAvailable} ${t.updateAvailable}`}
+            </button>
+          ) : (
+            <span className="credits-version">v1.5.0</span>
+          )}
+        </div>
+      </div>
+      </>
       ) : (
       <>
       {renderHeader(true)}
@@ -1133,6 +1222,16 @@ function IconDocument() {
   );
 }
 
+function IconMusic() {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </svg>
+  );
+}
+
 function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void }) {
   const { t } = useT();
   return (
@@ -1153,6 +1252,11 @@ function HomeScreen({ onSelectMode }: { onSelectMode: (mode: AppMode) => void })
           <div className="mode-card-icon"><IconDocument /></div>
           <span className="mode-card-title">{t.pdfMode}</span>
           <span className="mode-card-hint">{t.pdfModeHint}</span>
+        </button>
+        <button className="mode-card" onClick={() => onSelectMode('audio')}>
+          <div className="mode-card-icon"><IconMusic /></div>
+          <span className="mode-card-title">{t.audioMode}</span>
+          <span className="mode-card-hint">{t.audioModeHint}</span>
         </button>
       </div>
     </div>
@@ -1771,6 +1875,377 @@ function PdfCompressor({
             disabled={!hasPendingPdfs || pdfRunning}
           >
             {t.compressPdfs} {pdfJobs.filter((j) => j.status === 'pendente').length || ''}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function AudioCompressor({
+  isDragging,
+  outputSettings,
+  notificationsEnabled,
+  notifyUser,
+}: {
+  isDragging: boolean;
+  outputSettings: OutputSettings;
+  notificationsEnabled: boolean;
+  notifyUser: (title: string, body: string) => Promise<void>;
+}) {
+  const { t, lang } = useT();
+  const [audioJobs, setAudioJobs] = useState<AudioJobItem[]>([]);
+  const [audioOutputDir, setAudioOutputDir] = useState('');
+  const [audioFormat, setAudioFormat] = useState<AudioOutputFormat>('mp3');
+  const [audioBitrate, setAudioBitrate] = useState<AudioBitrate>('192k');
+  const [audioRunning, setAudioRunning] = useState(false);
+  const [audioSubMode, setAudioSubMode] = useState<AudioSubMode>('compress');
+
+  const resolveAudioOutputDir = useCallback(async (sourcePath: string): Promise<string | null> => {
+    if (outputSettings.mode === 'fixed' && outputSettings.fixedPath) return outputSettings.fixedPath;
+    if (outputSettings.mode === 'always-ask') return pickFolder();
+    return joinPath(dirName(sourcePath), 'comprimidos');
+  }, [outputSettings]);
+
+  const addAudioJobs = useCallback(async (paths: string[], outDir: string) => {
+    const newJobs: AudioJobItem[] = [];
+    for (const p of paths) {
+      const fileName = baseName(p);
+      const size = await invoke<number>('get_file_size', { filePath: p });
+      const outFileName = changeExt(fileName, audioFormat);
+      newJobs.push({
+        id: nextId(),
+        inputPath: p,
+        fileName,
+        outputPath: joinPath(outDir, outFileName),
+        inputSize: size,
+        outputSize: 0,
+        outputFormat: audioFormat,
+        bitrate: audioBitrate,
+        status: 'pendente',
+      });
+    }
+    setAudioJobs((prev) => [...prev, ...newJobs]);
+  }, [audioFormat, audioBitrate]);
+
+  const handleSelectAudioFolder = useCallback(async () => {
+    const folder = await pickFolder();
+    if (!folder) return;
+    const audios = await invoke<VideoFile[]>('scan_audio', { folderPath: folder });
+    if (audios.length === 0) { alert(t.noAudioFound); return; }
+    const outDir = await resolveAudioOutputDir(audios[0].path);
+    if (!outDir) return;
+    setAudioOutputDir(outDir);
+    await addAudioJobs(audios.map((a) => a.path), outDir);
+  }, [addAudioJobs, resolveAudioOutputDir, t]);
+
+  const handleSelectAudioFiles = useCallback(async () => {
+    const files = await pickAudioFiles();
+    if (files.length === 0) return;
+    const outDir = await resolveAudioOutputDir(files[0]);
+    if (!outDir) return;
+    setAudioOutputDir(outDir);
+    await addAudioJobs(files, outDir);
+  }, [addAudioJobs, resolveAudioOutputDir]);
+
+  const handleSelectVideoFiles = useCallback(async () => {
+    const files = await pickVideoFilesForExtract();
+    if (files.length === 0) return;
+    const outDir = await resolveAudioOutputDir(files[0]);
+    if (!outDir) return;
+    setAudioOutputDir(outDir);
+    await addAudioJobs(files, outDir);
+  }, [addAudioJobs, resolveAudioOutputDir]);
+
+  // Drag & drop
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>('tauri://drag-drop', async (event) => {
+      const paths = event.payload.paths || [];
+      const validPaths: string[] = [];
+      const allowedExts = audioSubMode === 'compress' ? AUDIO_EXTS : VIDEO_EXTS;
+
+      for (const p of paths) {
+        const ext = extName(p);
+        if (allowedExts.includes(ext)) {
+          validPaths.push(p);
+        } else if (audioSubMode === 'compress') {
+          const audios = await invoke<VideoFile[]>('scan_audio', { folderPath: p }).catch(() => []);
+          validPaths.push(...audios.map((v) => v.path));
+        }
+      }
+
+      if (validPaths.length === 0) return;
+
+      const outDir = await resolveAudioOutputDir(validPaths[0]);
+      if (!outDir) return;
+      setAudioOutputDir(outDir);
+      await addAudioJobs(validPaths, outDir);
+    });
+
+    return () => { unlisten.then((fn) => fn()); };
+  }, [addAudioJobs, resolveAudioOutputDir, audioSubMode]);
+
+  // Ouvir eventos de conclusão/erro
+  useEffect(() => {
+    const unlisteners: (() => void)[] = [];
+
+    listen<{ jobId: string; outputSize: number }>('audio-done', (event) => {
+      const { jobId, outputSize } = event.payload;
+      setAudioJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'concluido' as AudioJobStatus, outputSize } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    listen<{ jobId: string; message: string }>('audio-error', (event) => {
+      const { jobId, message } = event.payload;
+      setAudioJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'erro' as AudioJobStatus, errorMessage: message } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
+    return () => { unlisteners.forEach((fn) => fn()); };
+  }, []);
+
+  // Notificar ao concluir tudo
+  useEffect(() => {
+    if (!audioRunning) return;
+    const allDone = audioJobs.every((j) => j.status === 'concluido' || j.status === 'erro');
+    if (audioJobs.length > 0 && allDone) {
+      setAudioRunning(false);
+      const done = audioJobs.filter((j) => j.status === 'concluido').length;
+      const errors = audioJobs.filter((j) => j.status === 'erro').length;
+      const body = errors > 0
+        ? `${done} ${lang === 'pt' ? 'áudio(s) processado(s),' : 'audio file(s) processed,'} ${errors} ${lang === 'pt' ? 'com erro.' : 'with errors.'}`
+        : `${done} ${lang === 'pt' ? 'áudio(s) processado(s) com sucesso!' : 'audio file(s) processed successfully!'}`;
+      notifyUser(t.compressionDone, body);
+    }
+  }, [audioJobs, audioRunning, t, lang, notifyUser]);
+
+  const handleCompressAudio = useCallback(async () => {
+    const pending = audioJobs.filter((j) => j.status === 'pendente');
+    if (pending.length === 0) return;
+
+    setAudioRunning(true);
+
+    if (audioSubMode === 'compress') {
+      const jobsToSend = pending.map((j) => ({
+        id: j.id,
+        inputPath: j.inputPath,
+        fileName: j.fileName,
+        outputPath: joinPath(audioOutputDir, changeExt(j.fileName, j.outputFormat)),
+        inputSize: j.inputSize,
+        outputFormat: j.outputFormat,
+        bitrate: j.bitrate,
+      }));
+      await invoke('compress_audio', { jobs: jobsToSend });
+    } else {
+      const jobsToSend = pending.map((j) => ({
+        id: j.id,
+        inputPath: j.inputPath,
+        fileName: j.fileName,
+        outputPath: joinPath(audioOutputDir, changeExt(j.fileName, j.outputFormat)),
+        inputSize: j.inputSize,
+        outputFormat: j.outputFormat,
+        bitrate: j.bitrate,
+      }));
+      await invoke('extract_audio_from_video', { jobs: jobsToSend });
+    }
+  }, [audioJobs, audioOutputDir, audioSubMode]);
+
+  const handleRemoveAudioJob = useCallback((id: string) => {
+    setAudioJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const handleClearAudio = useCallback(() => {
+    setAudioJobs([]);
+    setAudioOutputDir('');
+  }, []);
+
+  const handleOpenAudioOutput = useCallback(async () => {
+    if (audioOutputDir) await invoke('open_folder', { folderPath: audioOutputDir });
+  }, [audioOutputDir]);
+
+  const audioTotals = useMemo(() => {
+    const done = audioJobs.filter((j) => j.status === 'concluido');
+    const totalIn = done.reduce((s, j) => s + j.inputSize, 0);
+    const totalOut = done.reduce((s, j) => s + j.outputSize, 0);
+    const pct = totalIn > 0 ? Math.round((1 - totalOut / totalIn) * 100) : 0;
+    return { totalIn, totalOut, done: done.length, pct };
+  }, [audioJobs]);
+
+  const hasPendingAudio = audioJobs.some((j) => j.status === 'pendente');
+
+  const handleSwitchSubMode = useCallback((sub: AudioSubMode) => {
+    if (audioRunning) return;
+    setAudioSubMode(sub);
+    setAudioJobs([]);
+    setAudioOutputDir('');
+  }, [audioRunning]);
+
+  return (
+    <>
+      {isDragging && (
+        <div className="drop-overlay">
+          <div className="drop-content">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span>{t.dropHere}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="content">
+        <div className="tab-row">
+          <button
+            className={`tab-btn ${audioSubMode === 'compress' ? 'active' : ''}`}
+            onClick={() => handleSwitchSubMode('compress')}
+          >
+            {t.audioTab}
+          </button>
+          <button
+            className={`tab-btn ${audioSubMode === 'extract' ? 'active' : ''}`}
+            onClick={() => handleSwitchSubMode('extract')}
+          >
+            {t.extractTab}
+          </button>
+        </div>
+
+        <div className="section">
+          <div className="section-label">
+            {audioSubMode === 'compress' ? t.selectAudio : t.extractAudio}
+          </div>
+          <div className="row">
+            {audioSubMode === 'compress' ? (
+              <>
+                <button className="btn btn-with-icon" onClick={handleSelectAudioFolder} disabled={audioRunning}>
+                  <IconFolder /> {t.selectAudioFolder}
+                </button>
+                <button className="btn btn-with-icon" onClick={handleSelectAudioFiles} disabled={audioRunning}>
+                  <IconMusic /> {t.selectAudio}
+                </button>
+              </>
+            ) : (
+              <button className="btn btn-with-icon" onClick={handleSelectVideoFiles} disabled={audioRunning}>
+                <IconVideoLarge /> {t.extractAudio}
+              </button>
+            )}
+            {audioJobs.length > 0 && !audioRunning && (
+              <button className="btn" onClick={handleClearAudio}>
+                {t.clearList}
+              </button>
+            )}
+          </div>
+          <div className="hint" style={{ marginTop: 6 }}>
+            {audioSubMode === 'compress' ? t.dragHint : t.extractAudioHint}
+          </div>
+          {audioOutputDir && (
+            <div className="hint output-dir-row">
+              {t.savingTo} <strong>{audioOutputDir}</strong>
+            </div>
+          )}
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.compressionOptions}</div>
+          <div className="options">
+            <div className="option-group">
+              <div className="section-label">{t.audioFormat}</div>
+              <div className="pill-row">
+                <Pill active={audioFormat === 'mp3'} onClick={() => setAudioFormat('mp3')}>MP3</Pill>
+                <Pill active={audioFormat === 'aac'} onClick={() => setAudioFormat('aac')}>AAC</Pill>
+                <Pill active={audioFormat === 'ogg'} onClick={() => setAudioFormat('ogg')}>OGG</Pill>
+                <Pill active={audioFormat === 'flac'} onClick={() => setAudioFormat('flac')}>FLAC</Pill>
+                <Pill active={audioFormat === 'wav'} onClick={() => setAudioFormat('wav')}>WAV</Pill>
+              </div>
+            </div>
+            {audioFormat !== 'flac' && audioFormat !== 'wav' && (
+              <div className="option-group">
+                <div className="section-label">{t.audioBitrate}</div>
+                <div className="pill-row">
+                  <Pill active={audioBitrate === '128k'} onClick={() => setAudioBitrate('128k')}>128k</Pill>
+                  <Pill active={audioBitrate === '192k'} onClick={() => setAudioBitrate('192k')}>192k</Pill>
+                  <Pill active={audioBitrate === '256k'} onClick={() => setAudioBitrate('256k')}>256k</Pill>
+                  <Pill active={audioBitrate === '320k'} onClick={() => setAudioBitrate('320k')}>320k</Pill>
+                </div>
+                <div className="hint">{t.audioBitrateHint}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="section">
+          <div className="section-label">{t.queue} ({audioJobs.length})</div>
+          {audioJobs.length === 0 ? (
+            <div className="empty">{t.emptyAudioQueue}</div>
+          ) : (
+            <div className="queue">
+              {audioJobs.map((job) => (
+                <div className="job" key={job.id}>
+                  <div className="job-top">
+                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                    <span className="format-badge">
+                      {extName(job.inputPath).toUpperCase()} → {job.outputFormat.toUpperCase()}
+                    </span>
+                    <span className={`status-badge status-${job.status}`}>
+                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
+                    </span>
+                    {job.status === 'concluido' && job.outputSize > 0 ? (
+                      <span className="job-meta">
+                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                        {job.inputSize > 0 && (
+                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                    )}
+                    {job.status === 'pendente' && !audioRunning && (
+                      <button className="remove-btn" onClick={() => handleRemoveAudioJob(job.id)} title={t.remove}>✕</button>
+                    )}
+                  </div>
+                  {job.status === 'erro' && job.errorMessage && (
+                    <div className="job-error">{job.errorMessage}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="footer">
+        <div className="summary">
+          {audioTotals.done > 0 && (
+            <>
+              <strong>{audioTotals.done}</strong> {t.completedCount}
+              {audioTotals.totalIn > 0 && (
+                <>
+                  {' '}· {formatBytes(audioTotals.totalIn)} → {formatBytes(audioTotals.totalOut)}
+                  {' '}· <strong className="green">−{audioTotals.pct}%</strong>
+                </>
+              )}
+            </>
+          )}
+        </div>
+        <div className="row">
+          {audioTotals.done > 0 && audioOutputDir && (
+            <button className="btn btn-with-icon" onClick={handleOpenAudioOutput}>
+              <IconExternalLink /> {t.openFolder}
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={handleCompressAudio}
+            disabled={!hasPendingAudio || audioRunning}
+          >
+            {audioSubMode === 'compress' ? t.compressAudio : t.extractAudio} {audioJobs.filter((j) => j.status === 'pendente').length || ''}
           </button>
         </div>
       </div>
