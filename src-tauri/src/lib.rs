@@ -45,6 +45,7 @@ pub struct CompressionSettings {
     pub remove_audio: bool,
     pub trim_start: Option<String>,
     pub trim_end: Option<String>,
+    pub max_threads: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -289,7 +290,7 @@ fn build_args(
             "-crf".to_string(), crf.to_string(),
             "-b:v".to_string(), "0".to_string(),
             "-cpu-used".to_string(), "6".to_string(),
-            "-threads".to_string(), "0".to_string(),
+            "-threads".to_string(), settings.max_threads.unwrap_or(0).to_string(),
         ]);
     } else {
         let hw_encoder = if use_hw {
@@ -327,7 +328,7 @@ fn build_args(
                 "-preset".to_string(),
                 "veryfast".to_string(),
                 "-threads".to_string(),
-                "0".to_string(),
+                settings.max_threads.unwrap_or(0).to_string(),
             ]);
         }
     }
@@ -912,6 +913,50 @@ fn image_thumbnail(file_path: String) -> Result<String, String> {
     Ok(format!("data:image/jpeg;base64,{}", b64))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemInfo {
+    pub cpu_cores: usize,
+    pub total_ram_mb: u64,
+    pub is_low_end: bool,
+    pub recommended_parallel: u32,
+    pub recommended_threads: u32,
+}
+
+#[tauri::command]
+fn get_system_info() -> SystemInfo {
+    use sysinfo::System;
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu_cores = sys.cpus().len();
+    let total_ram_mb = sys.total_memory() / 1024 / 1024;
+
+    // PC fraco: menos de 4 cores ou menos de 8GB RAM
+    let is_low_end = cpu_cores <= 4 || total_ram_mb < 8000;
+
+    let recommended_parallel = if total_ram_mb < 4000 {
+        1
+    } else if total_ram_mb < 8000 || cpu_cores <= 4 {
+        1
+    } else if total_ram_mb < 16000 || cpu_cores <= 8 {
+        2
+    } else {
+        3
+    };
+
+    // Threads: metade dos cores para deixar margem
+    let recommended_threads = ((cpu_cores as u32) / 2).max(1);
+
+    SystemInfo {
+        cpu_cores,
+        total_ram_mb,
+        is_low_end,
+        recommended_parallel,
+        recommended_threads,
+    }
+}
+
 #[tauri::command]
 fn play_completion_sound() {
     #[cfg(target_os = "macos")]
@@ -1243,16 +1288,41 @@ async fn convert_files(app: AppHandle, jobs: Vec<ConvertJob>) -> Result<(), Stri
                 Err(e) => Err(format!("Erro ao abrir: {}", e)),
             }
         } else {
-            // Conversão de vídeo/áudio usando ffmpeg com -c copy (sem re-encoding = instantâneo)
+            // Conversão de vídeo/áudio via ffmpeg
             let is_audio_only = AUDIO_EXTENSIONS.iter().any(|e| e.trim_start_matches('.') == input_ext);
-            let args = if is_audio_only {
-                vec!["-y".to_string(), "-i".to_string(), job.input_path.clone(), job.output_path.clone()]
+            let out_ext = Path::new(&job.output_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .unwrap_or_default();
+
+            // WebM precisa re-encoding (VP9+Opus), não suporta -c copy de H.264
+            let needs_reencode = out_ext == "webm" || out_ext == "ogg"
+                || (out_ext == "avi" && input_ext == "webm")
+                || is_audio_only;
+
+            let mut args = vec!["-y".to_string(), "-i".to_string(), job.input_path.clone()];
+
+            if needs_reencode {
+                if out_ext == "webm" {
+                    args.extend_from_slice(&[
+                        "-c:v".to_string(), "libvpx-vp9".to_string(),
+                        "-crf".to_string(), "30".to_string(),
+                        "-b:v".to_string(), "0".to_string(),
+                        "-cpu-used".to_string(), "6".to_string(),
+                        "-c:a".to_string(), "libopus".to_string(),
+                        "-b:a".to_string(), "128k".to_string(),
+                    ]);
+                }
+                // Áudio e outros: deixar ffmpeg decidir o codec
             } else {
-                vec!["-y".to_string(), "-i".to_string(), job.input_path.clone(),
-                     "-c".to_string(), "copy".to_string(),
-                     "-movflags".to_string(), "+faststart".to_string(),
-                     job.output_path.clone()]
-            };
+                args.extend_from_slice(&[
+                    "-c".to_string(), "copy".to_string(),
+                    "-movflags".to_string(), "+faststart".to_string(),
+                ]);
+            }
+
+            args.push(job.output_path.clone());
 
             let (mut rx, _child) = shell.sidecar("ffmpeg").unwrap()
                 .args(&args)
@@ -1429,6 +1499,7 @@ pub fn run() {
             update_tray_menu,
             get_cpu_usage,
             play_completion_sound,
+            get_system_info,
             scan_images,
             compress_images,
             image_thumbnail,

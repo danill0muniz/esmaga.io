@@ -1,3 +1,4 @@
+
 :root {
   --bg: #0f1115;
   --bg-elev: #181b22;
@@ -88,10 +89,16 @@ body {
   flex-shrink: 0;
 }
 
+.header-logo-svg {
+  height: 24px;
+  width: auto;
+}
+
 .header h1 {
+  font-family: 'Unbounded', sans-serif;
   font-size: 14px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .btn-settings {
@@ -600,12 +607,55 @@ body {
   margin-top: 2px;
 }
 
+.settings-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.settings-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.settings-card strong {
+  font-size: 13px;
+  display: block;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.settings-card .hint {
+  margin-top: 4px;
+}
+
+.toggle-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
 .settings-fixed-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  padding-left: 2px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings-fixed-row .hint {
+  margin-top: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- Toggle ---------- */
@@ -846,7 +896,8 @@ body {
 }
 
 .mode-card-title {
-  font-size: 16px;
+  font-family: 'Unbounded', sans-serif;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text);
 }
@@ -931,6 +982,7 @@ body {
 }
 
 .stat-card-value {
+  font-family: 'Unbounded', sans-serif;
   font-size: 28px;
   font-weight: 800;
   color: var(--text);

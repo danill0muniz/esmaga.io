@@ -9,6 +9,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { detectLang, saveLang, getTranslations, LangContext, type Lang } from './i18n';
 import { useT } from './i18n';
+import esmagaLogo from './esmaga.svg';
 
 type AppMode = 'home' | 'video' | 'image' | 'pdf' | 'audio' | 'convert';
 type VideoFormat = 'h264' | 'h265';
@@ -24,6 +25,7 @@ interface CompressionSettings {
   removeAudio: boolean;
   trimStart?: string;
   trimEnd?: string;
+  maxThreads?: number;
 }
 
 type JobStatus = 'pendente' | 'processando' | 'concluido' | 'erro';
@@ -386,6 +388,10 @@ export default function App() {
   const [parallelCount, setParallelCount] = useState(() => {
     try { return parseInt(localStorage.getItem('parallelCount') || '2') || 2; } catch { return 2; }
   });
+  const [ecoMode, setEcoMode] = useState(() => {
+    try { return localStorage.getItem('ecoMode') === 'true'; } catch { return false; }
+  });
+  const [systemInfo, setSystemInfo] = useState<{ cpuCores: number; totalRamMb: number; isLowEnd: boolean; recommendedParallel: number; recommendedThreads: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -441,6 +447,27 @@ export default function App() {
     setOutputSettingsState(s);
     saveOutputSettings(s);
   }, []);
+
+  // Detectar hardware e aplicar modo econômico
+  useEffect(() => {
+    invoke<{ cpuCores: number; totalRamMb: number; isLowEnd: boolean; recommendedParallel: number; recommendedThreads: number }>('get_system_info').then((info) => {
+      setSystemInfo(info);
+      // Auto-ativar eco mode se PC fraco e nunca foi configurado
+      if (info.isLowEnd && localStorage.getItem('ecoMode') === null) {
+        setEcoMode(true);
+        localStorage.setItem('ecoMode', 'true');
+        updateParallelCount(info.recommendedParallel);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const toggleEcoMode = useCallback((enabled: boolean) => {
+    setEcoMode(enabled);
+    localStorage.setItem('ecoMode', String(enabled));
+    if (enabled && systemInfo) {
+      updateParallelCount(systemInfo.recommendedParallel);
+    }
+  }, [systemInfo, updateParallelCount]);
 
   // Checar atualizações
   useEffect(() => {
@@ -706,6 +733,7 @@ export default function App() {
       removeAudio,
       trimStart: trimStart || undefined,
       trimEnd: trimEnd || undefined,
+      maxThreads: ecoMode && systemInfo ? systemInfo.recommendedThreads : undefined,
     };
     const prepared = jobsToRun.map((j) => ({
       ...j,
@@ -798,23 +826,7 @@ export default function App() {
           </button>
         ) : (
           <div className="header-brand">
-            <div className="header-logo">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                <rect x="3" y="6" width="16" height="12" rx="2.5" stroke="url(#logo-grad)" strokeWidth="2"/>
-                <path d="M19 10l5-3v10l-5-3v-4z" stroke="url(#logo-grad)" strokeWidth="2" strokeLinejoin="round"/>
-                <path d="M7 22c0-2.5 1.5-4 4-4" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 19.5l3 2.5-3 2.5" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M21 6c0 2.5-1.5 4-4 4" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M24 8.5l-3-2.5 3-2.5" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <defs>
-                  <linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
-                    <stop stopColor="#4f8cff"/>
-                    <stop offset="1" stopColor="#a855f7"/>
-                  </linearGradient>
-                </defs>
-              </svg>
-            </div>
-            <h1>{t.appName.toUpperCase()}</h1>
+            <img src={esmagaLogo} alt={t.appName} className="header-logo-svg" />
           </div>
         )}
         <div className="header-actions">
@@ -875,6 +887,9 @@ export default function App() {
           changeLang={changeLang}
           theme={theme}
           onChangeTheme={setTheme}
+          ecoMode={ecoMode}
+          onToggleEco={toggleEcoMode}
+          systemInfo={systemInfo}
         />
       ) : view === 'history' ? (
         <HistoryView onBack={() => setView('main')} />
@@ -2322,6 +2337,7 @@ function AudioCompressor({
 function SettingsView({
   outputSettings, onChangeOutput, notificationsEnabled, onToggleNotifications,
   parallelCount, onChangeParallel, onBack, lang, changeLang, theme, onChangeTheme,
+  ecoMode, onToggleEco, systemInfo,
 }: {
   outputSettings: OutputSettings;
   onChangeOutput: (s: OutputSettings) => void;
@@ -2334,6 +2350,9 @@ function SettingsView({
   changeLang: (l: Lang) => void;
   theme: 'dark' | 'light';
   onChangeTheme: (t: 'dark' | 'light') => void;
+  ecoMode: boolean;
+  onToggleEco: (v: boolean) => void;
+  systemInfo: { cpuCores: number; totalRamMb: number; isLowEnd: boolean; recommendedParallel: number; recommendedThreads: number } | null;
 }) {
   const { t } = useT();
 
@@ -2354,6 +2373,28 @@ function SettingsView({
         </div>
       </div>
       <div className="content">
+        {/* Aparência */}
+        <div className="section">
+          <div className="section-label">{lang === 'pt' ? 'Aparência' : 'Appearance'}</div>
+          <div className="settings-grid-2">
+            <div className="settings-card">
+              <strong>{t.languageLabel}</strong>
+              <div className="pill-row" style={{ marginTop: 10 }}>
+                <Pill active={lang === 'pt'} onClick={() => changeLang('pt')}>Português</Pill>
+                <Pill active={lang === 'en'} onClick={() => changeLang('en')}>English</Pill>
+              </div>
+            </div>
+            <div className="settings-card">
+              <strong>{t.theme}</strong>
+              <div className="pill-row" style={{ marginTop: 10 }}>
+                <Pill active={theme === 'dark'} onClick={() => onChangeTheme('dark')}>{t.themeDark}</Pill>
+                <Pill active={theme === 'light'} onClick={() => onChangeTheme('light')}>{t.themeLight}</Pill>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Pasta de destino */}
         <div className="section">
           <div className="section-label">{t.defaultOutputFolder}</div>
           <div className="settings-options">
@@ -2387,23 +2428,35 @@ function SettingsView({
           )}
         </div>
 
+        {/* Performance */}
         <div className="section">
           <div className="section-label">{t.performance}</div>
-          <div className="settings-option active" style={{ cursor: 'default' }}>
-            <div style={{ flex: 1 }}>
+          <div className="settings-grid-2">
+            <label className="settings-card toggle-card">
+              <div style={{ flex: 1 }}>
+                <strong>{t.ecoMode}</strong>
+                <span className="hint">{t.ecoModeLabel}</span>
+                {systemInfo && (
+                  <span className="hint" style={{ marginTop: 4, display: 'block', fontSize: 11 }}>
+                    {systemInfo.cpuCores} {t.cpuCores} · {Math.round(systemInfo.totalRamMb / 1024)}GB {t.ram}
+                    {systemInfo.isLowEnd && <> · <span style={{ color: 'var(--amber)' }}>⚠</span></>}
+                  </span>
+                )}
+              </div>
+              <input type="checkbox" className="toggle" checked={ecoMode} onChange={(e) => onToggleEco(e.target.checked)} />
+            </label>
+            <div className="settings-card">
               <strong>{t.parallelCompression}</strong>
-              <span className="hint">{t.parallelHint}</span>
-              <div className="pill-row" style={{ marginTop: 8 }}>
+              <div className="pill-row" style={{ marginTop: 10 }}>
                 {[1, 2, 3, 4].map((n) => (
-                  <Pill key={n} active={parallelCount === n} onClick={() => onChangeParallel(n)}>
-                    {n}x
-                  </Pill>
+                  <Pill key={n} active={parallelCount === n} onClick={() => onChangeParallel(n)}>{n}x</Pill>
                 ))}
               </div>
             </div>
           </div>
         </div>
 
+        {/* Notificações */}
         <div className="section">
           <div className="section-label">{t.notifications}</div>
           <label className="toggle-row">
@@ -2411,39 +2464,8 @@ function SettingsView({
               <strong>{t.notifyOnComplete}</strong>
               <span className="hint">{t.notifyHint}</span>
             </div>
-            <input
-              type="checkbox"
-              className="toggle"
-              checked={notificationsEnabled}
-              onChange={(e) => onToggleNotifications(e.target.checked)}
-            />
+            <input type="checkbox" className="toggle" checked={notificationsEnabled} onChange={(e) => onToggleNotifications(e.target.checked)} />
           </label>
-        </div>
-
-        <div className="section">
-          <div className="section-label">{t.language}</div>
-          <div className="settings-option active" style={{ cursor: 'default' }}>
-            <div style={{ flex: 1 }}>
-              <strong>{t.languageLabel}</strong>
-              <div className="pill-row" style={{ marginTop: 8 }}>
-                <Pill active={lang === 'pt'} onClick={() => changeLang('pt')}>Português</Pill>
-                <Pill active={lang === 'en'} onClick={() => changeLang('en')}>English</Pill>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="section">
-          <div className="section-label">{t.theme}</div>
-          <div className="settings-option active" style={{ cursor: 'default' }}>
-            <div style={{ flex: 1 }}>
-              <strong>{t.theme}</strong>
-              <div className="pill-row" style={{ marginTop: 8 }}>
-                <Pill active={theme === 'dark'} onClick={() => onChangeTheme('dark')}>{t.themeDark}</Pill>
-                <Pill active={theme === 'light'} onClick={() => onChangeTheme('light')}>{t.themeLight}</Pill>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>
