@@ -15,6 +15,13 @@ icon-novo.png
 *.tar.gz
 *.sig
 comprimidos/
+convertidos/
 build/
+src-tauri/libs/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*
+src-tauri/icons/StoreLogo*
+public/fonts/
 .DS_Store
 *.cer
