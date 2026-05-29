@@ -168,6 +168,20 @@ pub struct AudioErrorEvent {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioProgressEvent {
+    pub job_id: String,
+    pub progress: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfProgressEvent {
+    pub job_id: String,
+    pub progress: u32,
+}
+
 // ---------- Helpers ----------
 
 fn quality_for_software(format: &str, quality: &str) -> u32 {
@@ -762,6 +776,12 @@ async fn compress_pdfs(app: AppHandle, jobs: Vec<PdfJob>) -> Result<(), String> 
             let _ = fs::create_dir_all(parent);
         }
 
+        // Emitir progresso 0 para indicar que o processamento começou
+        let _ = app.emit("pdf-progress", PdfProgressEvent {
+            job_id: job.id.clone(),
+            progress: 0,
+        });
+
         let gs_path = find_ghostscript();
         let result = std::process::Command::new(&gs_path)
             .args([
@@ -1160,25 +1180,79 @@ async fn compress_audio(app: AppHandle, jobs: Vec<AudioJob>) -> Result<(), Strin
 
         args.push(job.output_path.clone());
 
-        let output = shell.sidecar("ffmpeg").unwrap()
-            .args(&args)
-            .output()
-            .await;
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
-                let _ = app.emit("audio-done", AudioDoneEvent {
-                    job_id: job.id.clone(),
-                    output_size: size,
-                });
+        // Obter duração para calcular progresso
+        let duration = {
+            let probe = shell.sidecar("ffprobe").unwrap()
+                .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", &job.input_path])
+                .output().await;
+            match probe {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap_or(0.0),
+                Err(_) => 0.0,
             }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let _ = app.emit("audio-error", AudioErrorEvent {
-                    job_id: job.id.clone(),
-                    message: format!("ffmpeg error: {}", stderr.chars().take(200).collect::<String>()),
-                });
+        };
+
+        let spawn_result = shell.sidecar("ffmpeg").unwrap()
+            .args(&args)
+            .spawn();
+
+        match spawn_result {
+            Ok((mut rx, _child)) => {
+                let mut stderr_buf = String::new();
+                let mut exited_ok = false;
+
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stderr(data) => {
+                            let line = String::from_utf8_lossy(&data);
+                            stderr_buf.push_str(&line);
+
+                            if let Some(t) = parse_time(&stderr_buf) {
+                                if duration > 0.0 {
+                                    let pct = ((t / duration) * 100.0).min(99.0) as u32;
+                                    let _ = app.emit("audio-progress", AudioProgressEvent {
+                                        job_id: job.id.clone(),
+                                        progress: pct,
+                                    });
+                                }
+                            }
+
+                            if stderr_buf.len() > 4096 {
+                                stderr_buf = stderr_buf[stderr_buf.len() - 512..].to_string();
+                            }
+                        }
+                        CommandEvent::Terminated(payload) => {
+                            exited_ok = payload.code == Some(0);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if exited_ok {
+                    let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+                    let _ = app.emit("audio-done", AudioDoneEvent {
+                        job_id: job.id.clone(),
+                        output_size: size,
+                    });
+                } else {
+                    let last_lines: String = stderr_buf
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    let _ = app.emit("audio-error", AudioErrorEvent {
+                        job_id: job.id.clone(),
+                        message: if last_lines.is_empty() {
+                            "ffmpeg saiu com código de erro".to_string()
+                        } else {
+                            format!("ffmpeg erro: {}", last_lines)
+                        },
+                    });
+                }
             }
             Err(e) => {
                 let _ = app.emit("audio-error", AudioErrorEvent {
@@ -1217,25 +1291,79 @@ async fn extract_audio_from_video(app: AppHandle, jobs: Vec<ExtractAudioJob>) ->
 
         args.push(job.output_path.clone());
 
-        let output = shell.sidecar("ffmpeg").unwrap()
-            .args(&args)
-            .output()
-            .await;
-
-        match output {
-            Ok(out) if out.status.success() => {
-                let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
-                let _ = app.emit("audio-done", AudioDoneEvent {
-                    job_id: job.id.clone(),
-                    output_size: size,
-                });
+        // Obter duração para calcular progresso
+        let duration = {
+            let probe = shell.sidecar("ffprobe").unwrap()
+                .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", &job.input_path])
+                .output().await;
+            match probe {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap_or(0.0),
+                Err(_) => 0.0,
             }
-            Ok(out) => {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let _ = app.emit("audio-error", AudioErrorEvent {
-                    job_id: job.id.clone(),
-                    message: format!("ffmpeg error: {}", stderr.chars().take(200).collect::<String>()),
-                });
+        };
+
+        let spawn_result = shell.sidecar("ffmpeg").unwrap()
+            .args(&args)
+            .spawn();
+
+        match spawn_result {
+            Ok((mut rx, _child)) => {
+                let mut stderr_buf = String::new();
+                let mut exited_ok = false;
+
+                while let Some(event) = rx.recv().await {
+                    match event {
+                        CommandEvent::Stderr(data) => {
+                            let line = String::from_utf8_lossy(&data);
+                            stderr_buf.push_str(&line);
+
+                            if let Some(t) = parse_time(&stderr_buf) {
+                                if duration > 0.0 {
+                                    let pct = ((t / duration) * 100.0).min(99.0) as u32;
+                                    let _ = app.emit("audio-progress", AudioProgressEvent {
+                                        job_id: job.id.clone(),
+                                        progress: pct,
+                                    });
+                                }
+                            }
+
+                            if stderr_buf.len() > 4096 {
+                                stderr_buf = stderr_buf[stderr_buf.len() - 512..].to_string();
+                            }
+                        }
+                        CommandEvent::Terminated(payload) => {
+                            exited_ok = payload.code == Some(0);
+                        }
+                        _ => {}
+                    }
+                }
+
+                if exited_ok {
+                    let size = fs::metadata(&job.output_path).map(|m| m.len()).unwrap_or(0);
+                    let _ = app.emit("audio-done", AudioDoneEvent {
+                        job_id: job.id.clone(),
+                        output_size: size,
+                    });
+                } else {
+                    let last_lines: String = stderr_buf
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .rev()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>()
+                        .join(" | ");
+                    let _ = app.emit("audio-error", AudioErrorEvent {
+                        job_id: job.id.clone(),
+                        message: if last_lines.is_empty() {
+                            "ffmpeg saiu com código de erro".to_string()
+                        } else {
+                            format!("ffmpeg erro: {}", last_lines)
+                        },
+                    });
+                }
             }
             Err(e) => {
                 let _ = app.emit("audio-error", AudioErrorEvent {

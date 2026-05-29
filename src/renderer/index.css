@@ -445,6 +445,16 @@ body {
   background: var(--green);
 }
 
+.progress-fill.progress-indeterminate {
+  width: 30%;
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(433%); }
+}
+
 .job-error {
   font-size: 12px;
   color: var(--red);

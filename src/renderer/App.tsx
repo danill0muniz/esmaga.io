@@ -69,7 +69,7 @@ interface ImageJob {
 }
 
 type PdfQuality = 'screen' | 'ebook' | 'printer' | 'prepress';
-type PdfJobStatus = 'pendente' | 'concluido' | 'erro';
+type PdfJobStatus = 'pendente' | 'processando' | 'concluido' | 'erro';
 
 interface PdfJob {
   id: string;
@@ -80,12 +80,13 @@ interface PdfJob {
   outputSize: number;
   quality: PdfQuality;
   status: PdfJobStatus;
+  progress: number;
   errorMessage?: string;
 }
 
 type AudioOutputFormat = 'mp3' | 'aac' | 'ogg' | 'flac' | 'wav';
 type AudioBitrate = '128k' | '192k' | '256k' | '320k';
-type AudioJobStatus = 'pendente' | 'concluido' | 'erro';
+type AudioJobStatus = 'pendente' | 'processando' | 'concluido' | 'erro';
 type AudioSubMode = 'compress' | 'extract';
 
 interface AudioJobItem {
@@ -98,6 +99,7 @@ interface AudioJobItem {
   outputFormat: AudioOutputFormat;
   bitrate: AudioBitrate;
   status: AudioJobStatus;
+  progress: number;
   errorMessage?: string;
 }
 
@@ -1519,6 +1521,19 @@ function ImageCompressor({
     setImageJobs((prev) => prev.filter((j) => j.id !== id));
   }, []);
 
+  const imgSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEndImages = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setImageJobs((prev) => {
+        const oldIdx = prev.findIndex((j) => j.id === active.id);
+        const newIdx = prev.findIndex((j) => j.id === over.id);
+        return arrayMove(prev, oldIdx, newIdx);
+      });
+    }
+  }, []);
+
   const handleClearImages = useCallback(() => {
     if (!confirm(t.confirmClear)) return;
     setImageJobs([]);
@@ -1606,41 +1621,50 @@ function ImageCompressor({
           {imageJobs.length === 0 ? (
             <div className="empty">{t.emptyImageQueue}</div>
           ) : (
-            <div className="queue">
-              {imageJobs.map((job) => (
-                <div className="job" key={job.id}>
-                  <div className="job-top">
-                    {job.thumbnail && (
-                      <img className="image-thumb" src={job.thumbnail} alt="" />
-                    )}
-                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
-                    <span className="format-badge">
-                      {extName(job.inputPath).toUpperCase()}
-                      {job.outputFormat !== 'original' && ` → ${job.outputFormat.toUpperCase()}`}
-                    </span>
-                    <span className={`status-badge status-${job.status}`}>
-                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
-                    </span>
-                    {job.status === 'concluido' && job.outputSize > 0 ? (
-                      <span className="job-meta">
-                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
-                        {job.inputSize > 0 && (
-                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
-                    )}
-                    {job.status === 'pendente' && !imageRunning && (
-                      <button className="remove-btn" onClick={() => handleRemoveImage(job.id)} title={t.remove}>✕</button>
-                    )}
-                  </div>
-                  {job.status === 'erro' && job.errorMessage && (
-                    <div className="job-error">{job.errorMessage}</div>
-                  )}
+            <DndContext sensors={imgSensors} collisionDetection={closestCenter} onDragEnd={handleDragEndImages}>
+              <SortableContext items={imageJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
+                <div className="queue">
+                  {imageJobs.map((job) => (
+                    <SortableJobWrapper key={job.id} id={job.id} canDrag={job.status === 'pendente' && !imageRunning}>
+                      {(dragHandle) => (
+                        <div className="job">
+                          <div className="job-top">
+                            {dragHandle}
+                            {job.thumbnail && (
+                              <img className="image-thumb" src={job.thumbnail} alt="" />
+                            )}
+                            <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                            <span className="format-badge">
+                              {extName(job.inputPath).toUpperCase()}
+                              {job.outputFormat !== 'original' && ` → ${job.outputFormat.toUpperCase()}`}
+                            </span>
+                            <span className={`status-badge status-${job.status}`}>
+                              {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
+                            </span>
+                            {job.status === 'concluido' && job.outputSize > 0 ? (
+                              <span className="job-meta">
+                                {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                                {job.inputSize > 0 && (
+                                  <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                            )}
+                            {job.status === 'pendente' && !imageRunning && (
+                              <button className="remove-btn" onClick={() => handleRemoveImage(job.id)} title={t.remove}>✕</button>
+                            )}
+                          </div>
+                          {job.status === 'erro' && job.errorMessage && (
+                            <div className="job-error">{job.errorMessage}</div>
+                          )}
+                        </div>
+                      )}
+                    </SortableJobWrapper>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </div>
@@ -1715,6 +1739,7 @@ function PdfCompressor({
         outputSize: 0,
         quality: pdfQuality,
         status: 'pendente',
+        progress: 0,
       });
     }
     setPdfJobs((prev) => {
@@ -1775,11 +1800,20 @@ function PdfCompressor({
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
+    listen<{ jobId: string; progress: number }>('pdf-progress', (event) => {
+      const { jobId } = event.payload;
+      setPdfJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'processando' as PdfJobStatus, progress: 0 } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
     listen<{ jobId: string; outputSize: number }>('pdf-done', (event) => {
       const { jobId, outputSize } = event.payload;
       setPdfJobs((prev) =>
         prev.map((j) =>
-          j.id === jobId ? { ...j, status: 'concluido' as PdfJobStatus, outputSize } : j
+          j.id === jobId ? { ...j, status: 'concluido' as PdfJobStatus, outputSize, progress: 100 } : j
         )
       );
     }).then((fn) => unlisteners.push(fn));
@@ -1831,6 +1865,19 @@ function PdfCompressor({
 
   const handleRemovePdf = useCallback((id: string) => {
     setPdfJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const pdfSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEndPdfs = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setPdfJobs((prev) => {
+        const oldIdx = prev.findIndex((j) => j.id === active.id);
+        const newIdx = prev.findIndex((j) => j.id === over.id);
+        return arrayMove(prev, oldIdx, newIdx);
+      });
+    }
   }, []);
 
   const handleClearPdfs = useCallback(() => {
@@ -1910,35 +1957,49 @@ function PdfCompressor({
           {pdfJobs.length === 0 ? (
             <div className="empty">{t.emptyPdfQueue}</div>
           ) : (
-            <div className="queue">
-              {pdfJobs.map((job) => (
-                <div className="job" key={job.id}>
-                  <div className="job-top">
-                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
-                    <span className="format-badge">PDF</span>
-                    <span className={`status-badge status-${job.status}`}>
-                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
-                    </span>
-                    {job.status === 'concluido' && job.outputSize > 0 ? (
-                      <span className="job-meta">
-                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
-                        {job.inputSize > 0 && (
-                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
-                    )}
-                    {job.status === 'pendente' && !pdfRunning && (
-                      <button className="remove-btn" onClick={() => handleRemovePdf(job.id)} title={t.remove}>✕</button>
-                    )}
-                  </div>
-                  {job.status === 'erro' && job.errorMessage && (
-                    <div className="job-error">{job.errorMessage}</div>
-                  )}
+            <DndContext sensors={pdfSensors} collisionDetection={closestCenter} onDragEnd={handleDragEndPdfs}>
+              <SortableContext items={pdfJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
+                <div className="queue">
+                  {pdfJobs.map((job) => (
+                    <SortableJobWrapper key={job.id} id={job.id} canDrag={job.status === 'pendente' && !pdfRunning}>
+                      {(dragHandle) => (
+                        <div className="job">
+                          <div className="job-top">
+                            {dragHandle}
+                            <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                            <span className="format-badge">PDF</span>
+                            <span className={`status-badge status-${job.status}`}>
+                              {job.status === 'pendente' ? t.pending : job.status === 'processando' ? t.processing : job.status === 'concluido' ? t.completed : t.error}
+                            </span>
+                            {job.status === 'concluido' && job.outputSize > 0 ? (
+                              <span className="job-meta">
+                                {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                                {job.inputSize > 0 && (
+                                  <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                            )}
+                            {job.status === 'pendente' && !pdfRunning && (
+                              <button className="remove-btn" onClick={() => handleRemovePdf(job.id)} title={t.remove}>✕</button>
+                            )}
+                          </div>
+                          {job.status === 'processando' && (
+                            <div className="progress-track">
+                              <div className="progress-fill progress-indeterminate" />
+                            </div>
+                          )}
+                          {job.status === 'erro' && job.errorMessage && (
+                            <div className="job-error">{job.errorMessage}</div>
+                          )}
+                        </div>
+                      )}
+                    </SortableJobWrapper>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </div>
@@ -2017,6 +2078,7 @@ function AudioCompressor({
         outputFormat: audioFormat,
         bitrate: audioBitrate,
         status: 'pendente',
+        progress: 0,
       });
     }
     setAudioJobs((prev) => {
@@ -2087,11 +2149,20 @@ function AudioCompressor({
   useEffect(() => {
     const unlisteners: (() => void)[] = [];
 
+    listen<{ jobId: string; progress: number }>('audio-progress', (event) => {
+      const { jobId, progress } = event.payload;
+      setAudioJobs((prev) =>
+        prev.map((j) =>
+          j.id === jobId ? { ...j, status: 'processando' as AudioJobStatus, progress } : j
+        )
+      );
+    }).then((fn) => unlisteners.push(fn));
+
     listen<{ jobId: string; outputSize: number }>('audio-done', (event) => {
       const { jobId, outputSize } = event.payload;
       setAudioJobs((prev) =>
         prev.map((j) =>
-          j.id === jobId ? { ...j, status: 'concluido' as AudioJobStatus, outputSize } : j
+          j.id === jobId ? { ...j, status: 'concluido' as AudioJobStatus, outputSize, progress: 100 } : j
         )
       );
     }).then((fn) => unlisteners.push(fn));
@@ -2157,6 +2228,19 @@ function AudioCompressor({
 
   const handleRemoveAudioJob = useCallback((id: string) => {
     setAudioJobs((prev) => prev.filter((j) => j.id !== id));
+  }, []);
+
+  const audioSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEndAudio = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setAudioJobs((prev) => {
+        const oldIdx = prev.findIndex((j) => j.id === active.id);
+        const newIdx = prev.findIndex((j) => j.id === over.id);
+        return arrayMove(prev, oldIdx, newIdx);
+      });
+    }
   }, []);
 
   const handleClearAudio = useCallback(() => {
@@ -2280,37 +2364,51 @@ function AudioCompressor({
           {audioJobs.length === 0 ? (
             <div className="empty">{t.emptyAudioQueue}</div>
           ) : (
-            <div className="queue">
-              {audioJobs.map((job) => (
-                <div className="job" key={job.id}>
-                  <div className="job-top">
-                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
-                    <span className="format-badge">
-                      {extName(job.inputPath).toUpperCase()} → {job.outputFormat.toUpperCase()}
-                    </span>
-                    <span className={`status-badge status-${job.status}`}>
-                      {job.status === 'pendente' ? t.pending : job.status === 'concluido' ? t.completed : t.error}
-                    </span>
-                    {job.status === 'concluido' && job.outputSize > 0 ? (
-                      <span className="job-meta">
-                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
-                        {job.inputSize > 0 && (
-                          <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
-                    )}
-                    {job.status === 'pendente' && !audioRunning && (
-                      <button className="remove-btn" onClick={() => handleRemoveAudioJob(job.id)} title={t.remove}>✕</button>
-                    )}
-                  </div>
-                  {job.status === 'erro' && job.errorMessage && (
-                    <div className="job-error">{job.errorMessage}</div>
-                  )}
+            <DndContext sensors={audioSensors} collisionDetection={closestCenter} onDragEnd={handleDragEndAudio}>
+              <SortableContext items={audioJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
+                <div className="queue">
+                  {audioJobs.map((job) => (
+                    <SortableJobWrapper key={job.id} id={job.id} canDrag={job.status === 'pendente' && !audioRunning}>
+                      {(dragHandle) => (
+                        <div className="job">
+                          <div className="job-top">
+                            {dragHandle}
+                            <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                            <span className="format-badge">
+                              {extName(job.inputPath).toUpperCase()} → {job.outputFormat.toUpperCase()}
+                            </span>
+                            <span className={`status-badge status-${job.status}`}>
+                              {job.status === 'pendente' ? t.pending : job.status === 'processando' ? `${job.progress}%` : job.status === 'concluido' ? t.completed : t.error}
+                            </span>
+                            {job.status === 'concluido' && job.outputSize > 0 ? (
+                              <span className="job-meta">
+                                {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                                {job.inputSize > 0 && (
+                                  <span className="green"> −{Math.round((1 - job.outputSize / job.inputSize) * 100)}%</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                            )}
+                            {job.status === 'pendente' && !audioRunning && (
+                              <button className="remove-btn" onClick={() => handleRemoveAudioJob(job.id)} title={t.remove}>✕</button>
+                            )}
+                          </div>
+                          {(job.status === 'processando' || job.status === 'concluido') && (
+                            <div className="progress-track">
+                              <div className={`progress-fill ${job.status === 'concluido' ? 'done' : ''}`} style={{ width: `${job.progress}%` }} />
+                            </div>
+                          )}
+                          {job.status === 'erro' && job.errorMessage && (
+                            <div className="job-error">{job.errorMessage}</div>
+                          )}
+                        </div>
+                      )}
+                    </SortableJobWrapper>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </div>
@@ -2841,6 +2939,19 @@ function FormatConverter({
     setConvertJobs((prev) => prev.filter((j) => j.id !== id));
   }, []);
 
+  const convertSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const handleDragEndConvert = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setConvertJobs((prev) => {
+        const oldIdx = prev.findIndex((j) => j.id === active.id);
+        const newIdx = prev.findIndex((j) => j.id === over.id);
+        return arrayMove(prev, oldIdx, newIdx);
+      });
+    }
+  }, []);
+
   const handleClearConvert = useCallback(() => {
     if (!confirm(t.confirmClear)) return;
     setConvertJobs([]);
@@ -2916,37 +3027,46 @@ function FormatConverter({
           {convertJobs.length === 0 ? (
             <div className="empty">{t.emptyConvertQueue}</div>
           ) : (
-            <div className="queue">
-              {convertJobs.map((job) => (
-                <div className="job" key={job.id}>
-                  <div className="job-top">
-                    <span className="job-name" title={job.fileName}>{job.fileName}</span>
-                    <span className="format-badge">
-                      {extName(job.inputPath).toUpperCase()} → {outputFormat.toUpperCase()}
-                    </span>
-                    <span className={`status-badge status-${job.status === 'convertendo' ? 'processando' : job.status === 'convertido' ? 'concluido' : job.status}`}>
-                      {job.status === 'pendente' ? t.pending
-                        : job.status === 'convertendo' ? (job.progress > 0 ? `${job.progress}%` : t.converting)
-                        : job.status === 'convertido' ? t.converted
-                        : t.error}
-                    </span>
-                    {job.status === 'convertido' && job.outputSize > 0 ? (
-                      <span className="job-meta">
-                        {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
-                      </span>
-                    ) : (
-                      <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
-                    )}
-                    {job.status === 'pendente' && !convertRunning && (
-                      <button className="remove-btn" onClick={() => handleRemoveConvert(job.id)} title={t.remove}>✕</button>
-                    )}
-                  </div>
-                  {job.status === 'erro' && job.errorMessage && (
-                    <div className="job-error">{job.errorMessage}</div>
-                  )}
+            <DndContext sensors={convertSensors} collisionDetection={closestCenter} onDragEnd={handleDragEndConvert}>
+              <SortableContext items={convertJobs.map(j => j.id)} strategy={verticalListSortingStrategy}>
+                <div className="queue">
+                  {convertJobs.map((job) => (
+                    <SortableJobWrapper key={job.id} id={job.id} canDrag={job.status === 'pendente' && !convertRunning}>
+                      {(dragHandle) => (
+                        <div className="job">
+                          <div className="job-top">
+                            {dragHandle}
+                            <span className="job-name" title={job.fileName}>{job.fileName}</span>
+                            <span className="format-badge">
+                              {extName(job.inputPath).toUpperCase()} → {outputFormat.toUpperCase()}
+                            </span>
+                            <span className={`status-badge status-${job.status === 'convertendo' ? 'processando' : job.status === 'convertido' ? 'concluido' : job.status}`}>
+                              {job.status === 'pendente' ? t.pending
+                                : job.status === 'convertendo' ? (job.progress > 0 ? `${job.progress}%` : t.converting)
+                                : job.status === 'convertido' ? t.converted
+                                : t.error}
+                            </span>
+                            {job.status === 'convertido' && job.outputSize > 0 ? (
+                              <span className="job-meta">
+                                {formatBytes(job.inputSize)} → {formatBytes(job.outputSize)}
+                              </span>
+                            ) : (
+                              <span className="job-meta">{job.inputSize > 0 ? formatBytes(job.inputSize) : ''}</span>
+                            )}
+                            {job.status === 'pendente' && !convertRunning && (
+                              <button className="remove-btn" onClick={() => handleRemoveConvert(job.id)} title={t.remove}>✕</button>
+                            )}
+                          </div>
+                          {job.status === 'erro' && job.errorMessage && (
+                            <div className="job-error">{job.errorMessage}</div>
+                          )}
+                        </div>
+                      )}
+                    </SortableJobWrapper>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </div>
@@ -2989,6 +3109,27 @@ function Pill({ active, onClick, children }: { active: boolean; onClick: () => v
       {children}
     </button>
   );
+}
+
+function SortableJobWrapper({ id, canDrag, children }: { id: string; canDrag: boolean; children: (dragHandle: React.ReactNode) => React.ReactNode }) {
+  const { t } = useT();
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled: !canDrag });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  const handle = canDrag ? (
+    <button className="drag-handle" {...attributes} {...listeners} title={t.dragReorder}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+        <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+        <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+      </svg>
+    </button>
+  ) : null;
+  return <div ref={setNodeRef} style={style}>{children(handle)}</div>;
 }
 
 function SortableJobRow({ job, onRemove, running }: {
